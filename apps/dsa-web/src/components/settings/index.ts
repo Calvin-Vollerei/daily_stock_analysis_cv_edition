@@ -13,3 +13,4 @@ export * from './AuthSettingsCard';
 export * from './GenerationBackendStatusPanel';
 export * from './AgentBackendStatusPanel';
 export * from './AppearanceSettingsCard';
+export * from './MacroSourceCard';

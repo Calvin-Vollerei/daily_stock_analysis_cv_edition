@@ -2,6 +2,7 @@ import type React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { ExternalLink, RefreshCw } from 'lucide-react';
 import { useUiLanguage } from '../contexts/UiLanguageContext';
+import { MACRO_SOURCE_CHANGED_EVENT, readMacroSourceUrl } from '../utils/macroSource';
 
 /**
  * A 股宏观页：以内嵌方式展示外部追踪站点。
@@ -9,20 +10,31 @@ import { useUiLanguage } from '../contexts/UiLanguageContext';
  * 设计取舍：
  * - 使用 iframe 直接加载原始站点，保留其鸣谢、免责声明与版权信息，
  *   本站不搬运、不二次加工第三方数据。
- * - 该站点未设置 X-Frame-Options / CSP frame-ancestors，可直接嵌入；
- *   若对方日后收紧，页面会给出「在新窗口打开」的兜底入口。
+ * - 地址来自「设置 → A股宏观数据源」，不在组件里写死；
+ *   目标站点若限制了嵌入，页面会给出「在新窗口打开」的兜底入口。
  */
-
-const MACRO_SOURCE_URL = 'https://wangwang-etf.com/';
 
 /** 超过这个时间仍未 onLoad，就提示可能被站点限制嵌入 */
 const SLOW_LOAD_HINT_MS = 15000;
 
 const MacroPage: React.FC = () => {
   const { t } = useUiLanguage();
+  const [sourceUrl, setSourceUrl] = useState(() => readMacroSourceUrl());
   const [reloadToken, setReloadToken] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [slow, setSlow] = useState(false);
+
+  // 设置页改动地址后实时切换，无需刷新整页
+  useEffect(() => {
+    const onChanged = () => {
+      setSourceUrl(readMacroSourceUrl());
+      setLoaded(false);
+      setSlow(false);
+      setReloadToken((token) => token + 1);
+    };
+    window.addEventListener(MACRO_SOURCE_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(MACRO_SOURCE_CHANGED_EVENT, onChanged);
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSlow(true), SLOW_LOAD_HINT_MS);
@@ -36,8 +48,8 @@ const MacroPage: React.FC = () => {
   }, []);
 
   const handleOpenExternal = useCallback(() => {
-    window.open(MACRO_SOURCE_URL, '_blank', 'noopener,noreferrer');
-  }, []);
+    window.open(sourceUrl, '_blank', 'noopener,noreferrer');
+  }, [sourceUrl]);
 
   return (
     <div className="flex h-[calc(100dvh-6rem)] min-h-[520px] flex-col gap-3">
@@ -85,9 +97,9 @@ const MacroPage: React.FC = () => {
         ) : null}
 
         <iframe
-          key={reloadToken}
+          key={`${sourceUrl}#${reloadToken}`}
           title={t('macro.title')}
-          src={MACRO_SOURCE_URL}
+          src={sourceUrl}
           onLoad={() => setLoaded(true)}
           className="h-full w-full border-0 bg-background"
           referrerPolicy="no-referrer-when-downgrade"

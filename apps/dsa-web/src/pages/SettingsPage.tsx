@@ -13,6 +13,7 @@ import { ApiErrorAlert, Button, ConfirmDialog, EmptyState } from '../components/
 import {
   AgentBackendStatusPanel,
   AppearanceSettingsCard,
+  MacroSourceCard,
   AuthSettingsCard,
   ChangePasswordCard,
   GenerationBackendStatusPanel,
@@ -1811,6 +1812,7 @@ const SettingsPage: React.FC = () => {
               </SettingsSectionCard>
             ) : null}
             {!trimmedSearchQuery && activeCategory === 'base' ? <AppearanceSettingsCard /> : null}
+            {!trimmedSearchQuery && activeCategory === 'base' ? <MacroSourceCard /> : null}
             {!trimmedSearchQuery && activeCategory === 'base' ? (
               <SettingsSectionCard
                 title={t('settings.intelligentImport')}
