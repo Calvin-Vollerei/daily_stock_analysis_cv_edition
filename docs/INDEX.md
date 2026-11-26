@@ -16,6 +16,8 @@
 | 处理数据源失败或降级 | [数据源稳定性与故障处理图示](data-source-stability.md) | [FAQ](FAQ.md) |
 | 确认某个市场支持哪些数据 | [市场支持与边界](market-support.md) | [数据中心](data-center-diagnostics.md) |
 | 参与开发或提交 PR | [贡献指南](CONTRIBUTING.md) | [API 规格](architecture/api_spec.json) |
+| 让 AI / 脚本调用接口 | [面向 AI 的数据接口速查](API-FOR-AI.md) | [API 规格](architecture/api_spec.json) |
+| 调整界面语言、主题、字体与字号 | [外观设置](APPEARANCE.md) | [完整配置与部署指南](full-guide.md) |
 
 ## 快速开始
 

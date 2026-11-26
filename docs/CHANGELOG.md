@@ -49,6 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - [改进] Web 股票输入框的联想搜索为每只股票只规范化一次代码、名称、拼音和别名，后续搜索直接复用，不再每次都对约 3.2 万条索引重新做 Unicode 规范化。
 - [修复] 持仓页浮动盈亏与收益率改用 A 股习惯的红涨绿跌配色，新增 `text-price-up` / `text-price-down` 工具类并复用 `--home-price-up` / `--home-price-down` 变量，收益为 0 时保持中性色，与个股页保持一致。
 - [修复] 为 MiniMax-M3.1-Flash 推理模型在部署层自动合并默认 `reasoning_effort=low`（保留 YAML deployment 原有 `extra_body` 路由/隐私参数及用户显式推理设置），避免隐藏推理耗尽 `max_tokens` 后返回 HTTP 200 但内容为空。
+<!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
+- [新功能] 设置页新增「外观」卡片：可切换界面语言、主题、界面字体、基础字号与行高，改动立即生效并保存在本机浏览器。
+- [新功能] 外观预览区展示中英文投资格言「买在无人问津处，卖在人声鼎沸时。」，用于直观比对字体与字号效果。
+- [改进] 全局排版改用 `--app-font-family` / `--app-base-font-size` / `--app-line-height` 三个 CSS 变量驱动，根字号同步缩放，界面元素按比例适配。
 
 ## [3.35.0] - 2026-11-16
 

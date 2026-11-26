@@ -12,6 +12,7 @@ import { systemConfigApi } from '../api/systemConfig';
 import { ApiErrorAlert, Button, ConfirmDialog, EmptyState } from '../components/common';
 import {
   AgentBackendStatusPanel,
+  AppearanceSettingsCard,
   AuthSettingsCard,
   ChangePasswordCard,
   GenerationBackendStatusPanel,
@@ -1809,6 +1810,7 @@ const SettingsPage: React.FC = () => {
                 </div>
               </SettingsSectionCard>
             ) : null}
+            {!trimmedSearchQuery && activeCategory === 'base' ? <AppearanceSettingsCard /> : null}
             {!trimmedSearchQuery && activeCategory === 'base' ? (
               <SettingsSectionCard
                 title={t('settings.intelligentImport')}

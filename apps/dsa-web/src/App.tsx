@@ -16,6 +16,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { UiLanguageProvider, useUiLanguage } from './contexts/UiLanguageContext';
 import { useAgentChatStore } from './stores/agentChatStore';
 import { resolveLoginRedirect } from './utils/loginRedirect';
+import { applyAppearance, readAppearance } from './utils/appearance';
 import './App.css';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
@@ -35,6 +36,10 @@ const AppContent: React.FC = () => {
   const location = useLocation();
   const { authEnabled, loggedIn, isLoading, loadError, refreshStatus } = useAuth();
   const { t } = useUiLanguage();
+
+  useEffect(() => {
+    applyAppearance(readAppearance());
+  }, []);
 
   useEffect(() => {
     useAgentChatStore.getState().setCurrentRoute(location.pathname);

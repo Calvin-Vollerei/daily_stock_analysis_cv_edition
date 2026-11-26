@@ -91,3 +91,6 @@ static/
 /apps/dsa-desktop/node_modules/
 /node_modules/
 docs/specs/
+
+# 本地合并 / 备份残留
+*.orig
