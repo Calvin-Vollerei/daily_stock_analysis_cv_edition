@@ -1,6 +1,7 @@
 {
   "name": "daily-stock-analysis-desktop",
-  "version": "3.35.0",
+  "version": "3.35.0-cv-edition",
+  "author": "Calvin Vollerei Studio",
   "private": true,
   "main": "main.js",
   "scripts": {

@@ -2,6 +2,9 @@
 
 # 📈 股票智能分析系统
 
+> **CV Edition** · 发行与维护：[Calvin Vollerei Studio](https://github.com/Calvin-Vollerei)
+> 本仓库是 [ZhuLinsen/daily_stock_analysis](https://github.com/ZhuLinsen/daily_stock_analysis) 的发行版 fork，遵循原项目 MIT 许可，原创版权归原作者所有。
+
 [![GitHub stars](https://img.shields.io/github/stars/ZhuLinsen/daily_stock_analysis?style=social)](https://github.com/ZhuLinsen/daily_stock_analysis/stargazers)
 [![arXiv](https://img.shields.io/badge/arXiv-2608.26990-b31b1b.svg)](https://arxiv.org/abs/2608.26990)
 [![CI](https://github.com/ZhuLinsen/daily_stock_analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/ZhuLinsen/daily_stock_analysis/actions/workflows/ci.yml)

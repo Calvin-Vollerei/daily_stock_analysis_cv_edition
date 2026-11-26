@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 > Release notes are generated from merged PRs and archived here by version. For the published notes, see [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases).
 
+## [3.35.0-cv-edition] - 2026-11-26
+
+CV Edition 首个发行版，基于上游 v3.35.0。发行与维护：Calvin Vollerei Studio。
+
+- [新功能] 「通用设置」独立为设置侧栏分类，涵盖界面语言 / 主题 / 字体字号 / 行高，以及「A股宏观」数据源地址。
+- [新功能] 新增「A股宏观」侧栏页，内嵌第三方汇金证金持仓追踪站点，数据源地址可在设置中修改。
+- [改进] 桌面端开屏自检通过后，进度条淡出并显示中英文投资格言艺术字。
+- [改进] 侧栏加宽至 161px，导航项垂直间距加大，图标与文字留白更舒展。
+- [改进] 桌面端关闭上游更新检查与更新入口，改由本发行版自行发布；桌面端版本与后端版本对齐。
+- [修复] 开屏页自检目标不再硬编码 8000，改由主进程传入实际端口，格言可稳定显示。
+- [修复] 桌面端日志写入遇到断管（EPIPE）时不再导致主进程崩溃。
+
 ## [Unreleased]
 
 - [修复] 历史决策信号回填和重评估保存时，按报告生成当日的服务器时区偏移换算 UTC，修复跨夏令时回填导致的创建和到期时间偏移。
