@@ -329,7 +329,9 @@ jobs:
     name: desktop-futu-package-macos
     runs-on: macos-15
     needs: [changes]
-    if: needs.changes.outputs.futu_packaging == 'true'
+    # edition 分支不发布 macOS 包，且 fork 里 macOS runner 排队会拖垮整个 ci-gate。
+    # 保留 job 与契约（futu_packaging 条件仍在），只在手动触发时运行。
+    if: needs.changes.outputs.futu_packaging == 'true' && github.event_name == 'workflow_dispatch'
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v5
