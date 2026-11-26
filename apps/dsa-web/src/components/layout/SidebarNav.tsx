@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Activity, BarChart3, Bell, BriefcaseBusiness, Database, Gauge, Home, LogOut, MessageSquareQuote, Search, Settings2 } from 'lucide-react';
+﻿import React, { useState } from 'react';
+import { Activity, BarChart3, Bell, BriefcaseBusiness, Database, Gauge, Home, Landmark, LogOut, MessageSquareQuote, Search, Settings2 } from 'lucide-react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAgentChatStore } from '../../stores/agentChatStore';
@@ -40,6 +40,7 @@ const NAV_GROUPS: NavGroup[] = [
       { key: 'home', labelKey: 'layout.nav.home', to: '/', icon: Home, exact: true },
       { key: 'chat', labelKey: 'layout.nav.chat', to: '/chat', icon: MessageSquareQuote, badge: 'completion' },
       { key: 'screening', labelKey: 'layout.nav.screening', to: '/screening', icon: Search },
+      { key: 'macro', labelKey: 'layout.nav.macro', to: '/macro', icon: Landmark },
     ],
   },
   {

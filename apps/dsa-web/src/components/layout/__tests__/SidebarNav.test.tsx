@@ -32,7 +32,7 @@ describe('SidebarNav', () => {
 
     expect(screen.getByRole('link', { name: '选股' })).toHaveAttribute('href', '/screening');
     const hrefs = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
-    expect(hrefs.slice(0, 5)).toEqual(['/', '/chat', '/screening', '/portfolio', '/decision-signals']);
+    expect(hrefs.slice(0, 6)).toEqual(['/', '/chat', '/screening', '/macro', '/portfolio', '/decision-signals']);
     expect(screen.getByText('投研分析')).toBeInTheDocument();
     expect(screen.getByText('组合与验证')).toBeInTheDocument();
     expect(screen.getByText('系统')).toBeInTheDocument();
