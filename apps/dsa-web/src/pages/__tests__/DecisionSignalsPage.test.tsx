@@ -531,7 +531,8 @@ describe('DecisionSignalsPage', () => {
     expect(within(screen.getByLabelText('Source')).getByRole('option', { name: 'Market review' })).toHaveValue('market_review');
     expect(screen.getByLabelText('Source report ID')).toBeInTheDocument();
     expect(screen.getAllByText('Japan').length).toBeGreaterThan(1);
-    expect(screen.getByText('Horizon')).toBeInTheDocument();
+    // 卡片内容是列表数据到达后才渲染的，用 findBy 等它出现；CI 上同步断言会偶发抓空。
+    expect(await screen.findByText('Horizon')).toBeInTheDocument();
     expect(screen.getByText('10 days')).toBeInTheDocument();
     expect(screen.getByText('Plan quality: Partial')).toBeInTheDocument();
     expect(screen.getByText('Phase: Closing auction')).toBeInTheDocument();
