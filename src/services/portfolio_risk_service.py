@@ -324,7 +324,7 @@ class PortfolioRiskService:
             "total_market_value": round(total_mv, 6),
             "top_weight_pct": round(float(top_weight), 4),
             "alert": bool(top_weight >= threshold_pct),
-            "top_positions": rows[:10],
+            "top_positions": rows,
         }
 
     def _build_sector_concentration(
