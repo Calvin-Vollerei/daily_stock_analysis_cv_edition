@@ -20,6 +20,14 @@ let electronUpdateCheckInFlight = false;
 let desktopUpdateCheckInFlight = false;
 let desktopBackendOrigin = '';
 
+// 终端/管道被提前关闭时，stdout / stderr 会异步抛出 EPIPE。
+// 没有监听器时 Node 会把它升级成未捕获异常，直接把主进程打崩；这里静默吞掉。
+for (const stream of [process.stdout, process.stderr]) {
+  if (stream && typeof stream.on === 'function') {
+    stream.on('error', () => {});
+  }
+}
+
 function resolveWindowBackgroundColor() {
   return nativeTheme.shouldUseDarkColors ? '#08080c' : '#f4f7fb';
 }
@@ -926,6 +934,15 @@ function initLogging() {
   logLine('Desktop app starting');
 }
 
+function safeConsoleWrite(method, value) {
+  // stdout/stderr 在「从终端启动后终端先关闭」等场景下会变成断管（EPIPE）。
+  // 日志是诊断手段，绝不能因为它把主进程带崩。
+  try {
+    console[method](value);
+  } catch (_error) {
+  }
+}
+
 function logLine(message) {
   const timestamp = new Date().toISOString();
   const line = `[${timestamp}] ${message}\n`;
@@ -934,9 +951,9 @@ function logLine(message) {
       fs.appendFileSync(logFilePath, line, 'utf-8');
     }
   } catch (error) {
-    console.error(error);
+    safeConsoleWrite('error', error);
   }
-  console.log(line.trim());
+  safeConsoleWrite('log', line.trim());
 }
 
 function decodeBackendOutput(data, decoder) {
