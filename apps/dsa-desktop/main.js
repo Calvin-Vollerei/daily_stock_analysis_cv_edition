@@ -40,6 +40,16 @@ const GITHUB_REPO = 'daily_stock_analysis';
 const RELEASES_PAGE_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases`;
 const LATEST_RELEASE_API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 const DEFAULT_REQUEST_TIMEOUT_MS = 5000;
+// 本仓库是 fork 发行版：桌面端不再跟随上游 GitHub Release。
+// 更新检查默认关闭，只有显式设置 DSA_DESKTOP_UPDATE_CHECK=1 时才恢复原来的在线检查逻辑。
+const DESKTOP_UPDATE_CHECK_ENABLED = process.env.DSA_DESKTOP_UPDATE_CHECK === '1';
+// 开屏页（renderer/loading.html）在启动后必须停留的时长。
+// 与 loading.html 的 HOLD_AFTER_PASS_MS 保持一致（3600ms，同时满足"至少 2 秒"）。
+// 后端早就绪（或第二个实例复用已有后端）时，健康检查会在一两帧内通过，
+// 没有这个停留就会立刻把开屏页换成主界面，看起来像"没有开屏页"。
+const SPLASH_HOLD_AFTER_PASS_MS = 3600;
+// 测试用可调项：单测里的假窗口没有真实渲染，不需要等满 3.6 秒。
+let splashHoldAfterPassMs = SPLASH_HOLD_AFTER_PASS_MS;
 const DESKTOP_UPDATE_BACKUP_DIR = '.dsa-desktop-update-backup';
 const DESKTOP_UPDATE_BACKUP_MANIFEST_FILE = 'runtime-state.json';
 const DESKTOP_BACKEND_DEFAULT_HOST = '127.0.0.1';
@@ -1826,7 +1836,33 @@ async function performElectronUpdaterCheck({ manual = false } = {}) {
   }
 }
 
+// 更新检查关闭时的统一状态出口。
+// 默认收敛成 idle（前端对 idle 不渲染任何更新横幅，也不会出现"检查更新失败"），
+// 但保留 "上次更新安装未完成" 这类真实错误状态，避免把真正的故障一起吞掉。
+function applyDisabledDesktopUpdateState() {
+  const previousState = desktopUpdateState;
+  if (previousState && previousState.status === UPDATE_STATUS.ERROR) {
+    return previousState;
+  }
+
+  desktopUpdateState = buildUpdateState({
+    status: UPDATE_STATUS.IDLE,
+    updateMode:
+      previousState && previousState.updateMode === UPDATE_MODE.AUTO
+        ? UPDATE_MODE.AUTO
+        : UPDATE_MODE.MANUAL,
+    currentVersion: resolveDesktopVersion(),
+  });
+  // 刻意不走 setDesktopUpdateState：更新检查关闭时不向渲染进程广播状态事件。
+  return desktopUpdateState;
+}
+
 async function performDesktopUpdateCheck({ manual = false, notify = false } = {}) {
+  // 默认关闭：不请求 GitHub、不发更新状态事件，状态保持 idle。
+  if (!DESKTOP_UPDATE_CHECK_ENABLED) {
+    return applyDisabledDesktopUpdateState();
+  }
+
   if (canUseElectronAutoUpdater()) {
     return performElectronUpdaterCheck({ manual, notify });
   }
@@ -1897,6 +1933,25 @@ ipcMain.handle('desktop:render-share-image', async (event, recordId) => {
   }
 });
 
+// 开屏页停留控制：开屏页渲染出来后，主界面必须等它满 SPLASH_HOLD_AFTER_PASS_MS 才切换。
+// main.js 之前只看后端健康检查，完全忽略开屏页自己的 3600ms 停留逻辑
+//（loading.html 的 HOLD_AFTER_PASS_MS / dsa-enter-main / __dsaSelfCheckDone 从未被主进程消费），
+// 因此后端早就绪时开屏页只剩一两帧。这里补上主进程侧的停留兜底。
+async function holdSplashAfterPass(splashShownAt) {
+  if (!Number.isFinite(splashShownAt) || splashHoldAfterPassMs <= 0) {
+    return 0;
+  }
+
+  const elapsedMs = Date.now() - splashShownAt;
+  const remainingMs = splashHoldAfterPassMs - elapsedMs;
+  if (remainingMs <= 0) {
+    return 0;
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, remainingMs));
+  return remainingMs;
+}
+
 async function createWindow() {
   desktopBackendOrigin = '';
   const restoreResult = isWindowsNsisInstalledApp() ? restorePackagedRuntimeStateFromBackup() : null;
@@ -1931,6 +1986,31 @@ async function createWindow() {
 
   logStartup('createWindow started');
 
+  // 端口必须在加载开屏页之前确定：开屏页要用它做自检探活。
+  // 否则自检会一直打向页面里硬编码的 8000，后端其实在动态端口上，格言永远出不来。
+  const appDir = resolveAppDir();
+  const envPath = path.join(appDir, '.env');
+  ensureEnvFile(envPath);
+  logStartup(`Env file ready: ${envPath}`);
+
+  const backendBindHost = resolveBackendBindHost({ envFile: envPath });
+  const backendConnectHost = resolveDesktopConnectHost(backendBindHost);
+  logStartup(`Backend bind host=${backendBindHost}; desktop connect host=${backendConnectHost}`);
+
+  const portFindStartedAt = Date.now();
+  // DSA_DESKTOP_PORT 允许把桌面端后端钉死在指定端口，
+  // 用于与同一台机器上的其他实例（另一个 DSA、启动器托管的后端）共存。
+  const pinnedPort = Number.parseInt(process.env.DSA_DESKTOP_PORT || '', 10);
+  const pinnedPortValid = Number.isInteger(pinnedPort) && pinnedPort >= 1 && pinnedPort <= 65535;
+  const port = pinnedPortValid
+    ? pinnedPort
+    : await findAvailablePort(8000, 8100, backendBindHost);
+  logStartup(
+    `Using port ${port} (${pinnedPortValid ? 'pinned via DSA_DESKTOP_PORT' : `selected in ${Date.now() - portFindStartedAt}ms`})`
+  );
+  desktopBackendOrigin = new URL(buildBackendUrl(backendConnectHost, port)).origin;
+  logStartup(`App directory=${appDir}`);
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -1948,8 +2028,10 @@ async function createWindow() {
 
   const loadingPath = path.join(__dirname, 'renderer', 'loading.html');
   const loadingPageStartedAt = Date.now();
-  await mainWindow.loadFile(loadingPath);
-  logStartup(`Loading page rendered in ${Date.now() - loadingPageStartedAt}ms`);
+  // 把真实端口透给开屏页，让它的自检打到正确的后端。
+  await mainWindow.loadFile(loadingPath, { search: `?dsaPort=${port}` });
+  const splashShownAt = Date.now();
+  logStartup(`Loading page rendered in ${splashShownAt - loadingPageStartedAt}ms`);
 
   const applyThemeBackground = () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
@@ -1985,21 +2067,6 @@ async function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
-
-  const appDir = resolveAppDir();
-  const envPath = path.join(appDir, '.env');
-  ensureEnvFile(envPath);
-  logStartup(`Env file ready: ${envPath}`);
-
-  const backendBindHost = resolveBackendBindHost({ envFile: envPath });
-  const backendConnectHost = resolveDesktopConnectHost(backendBindHost);
-  logStartup(`Backend bind host=${backendBindHost}; desktop connect host=${backendConnectHost}`);
-
-  const portFindStartedAt = Date.now();
-  const port = await findAvailablePort(8000, 8100, backendBindHost);
-  logStartup(`Using port ${port} (selected in ${Date.now() - portFindStartedAt}ms)`);
-  desktopBackendOrigin = new URL(buildBackendUrl(backendConnectHost, port)).origin;
-  logStartup(`App directory=${appDir}`);
 
   const dbPath = path.join(appDir, 'data', 'stock_analysis.db');
   const logDir = path.join(appDir, 'logs');
@@ -2081,6 +2148,11 @@ async function createWindow() {
       onHealthProgress
     );
     logStartup(`Backend ready in ${healthInfo.elapsedMs}ms (${healthInfo.attempts} probes)`);
+    // 后端就绪后，开屏页仍需停留（默认 3600ms，与 loading.html 的 HOLD_AFTER_PASS_MS 一致）。
+    const splashHoldMs = await holdSplashAfterPass(splashShownAt);
+    if (splashHoldMs > 0) {
+      logStartup(`Splash held for ${splashHoldMs}ms after backend ready`);
+    }
     const mainPageStartedAt = Date.now();
     const mainPageUrl = buildMainPageUrl(port, Date.now(), backendConnectHost);
     await mainWindow.loadURL(mainPageUrl);
@@ -2096,7 +2168,37 @@ async function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+// 把已运行实例的窗口拉到前台（单实例二次启动时使用）。
+function bringMainWindowToFront() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+
+  if (typeof mainWindow.isMinimized === 'function' && mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  if (typeof mainWindow.show === 'function') {
+    mainWindow.show();
+  }
+  mainWindow.focus();
+  return true;
+}
+
+// 单实例：重复双击启动器时不再起第二个 Electron + 第二个后端。
+// 否则第二个实例会立刻复用第一个实例的后端（健康检查首次探测即通过），
+// 开屏页只存在一两帧，用户看到的就是"没有开屏页、直接进主界面"。
+const singleInstanceLockAcquired =
+  typeof app.requestSingleInstanceLock === 'function' ? app.requestSingleInstanceLock() : true;
+
+if (singleInstanceLockAcquired) {
+  app.on('second-instance', () => {
+    bringMainWindowToFront();
+  });
+  app.whenReady().then(createWindow);
+} else {
+  // 已有实例在运行：当前进程直接退出，由已有实例负责把窗口拉到前台。
+  app.quit();
+}
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
@@ -2159,6 +2261,12 @@ module.exports = {
   },
   __setDesktopUpdateCheckerForTest(checker) {
     desktopUpdateChecker = typeof checker === 'function' ? checker : checkForDesktopUpdates;
+  },
+  __setSplashHoldAfterPassMsForTest(holdMs) {
+    const numericHoldMs = Number(holdMs);
+    splashHoldAfterPassMs = Number.isFinite(numericHoldMs) && numericHoldMs >= 0
+      ? numericHoldMs
+      : SPLASH_HOLD_AFTER_PASS_MS;
   },
   waitForBackendExit,
 };

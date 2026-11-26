@@ -816,17 +816,8 @@ const SettingsPage: React.FC = () => {
   const envBackupImportRef = useRef<HTMLInputElement | null>(null);
   const setupStatusRequestIdRef = useRef(0);
   const lastAppliedCategorySearchRef = useRef<string | null>(null);
-  const {
-    isDesktopRuntime,
-    canCheckDesktopUpdate,
-    desktopAppVersion,
-    isBusy: isDesktopUpdateBusy,
-    isChecking: isCheckingDesktopUpdate,
-    notice: desktopUpdateNotice,
-    checkForUpdates: handleDesktopUpdateCheck,
-    openReleasePage: openDesktopReleasePage,
-    installDownloadedUpdate: installDesktopUpdate,
-  } = useDesktopUpdate();
+  // 仅取桌面端版本号用于「版本信息」展示；更新检查/下载/安装入口在内部预览构建中已移除
+  const { isDesktopRuntime, desktopAppVersion } = useDesktopUpdate();
   const shouldShowDesktopVersionCard = Boolean(desktopAppVersion);
 
   // Set page title
@@ -1518,7 +1509,10 @@ const SettingsPage: React.FC = () => {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
           <aside className="lg:sticky lg:top-4 lg:self-start">
             <SettingsCategoryNav
-              categories={categories}
+              categories={[
+                { category: 'general', title: '通用设置', displayOrder: -1, fields: [] },
+                ...categories,
+              ]}
               itemsByCategory={itemsByCategory}
               activeCategory={activeCategory}
               onSelect={setActiveCategory}
@@ -1701,47 +1695,7 @@ const SettingsPage: React.FC = () => {
                 <p className="text-xs leading-6 text-muted-text">
                   {t('settings.updateBuildDescription')}
                 </p>
-                {canCheckDesktopUpdate ? (
-                  <div className="mt-4 space-y-3 rounded-2xl border settings-border bg-background/30 px-4 py-4">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{t('settings.desktopUpdate')}</p>
-                        <p className="text-xs leading-6 text-muted-text">
-                          {t('settings.desktopUpdateDescription')}
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="settings-secondary"
-                        onClick={() => void handleDesktopUpdateCheck()}
-                        disabled={isDesktopUpdateBusy}
-                        isLoading={isCheckingDesktopUpdate}
-                        loadingText={t('settings.checkingDesktopUpdate')}
-                      >
-                        {t('settings.checkDesktopUpdate')}
-                      </Button>
-                    </div>
-                    {desktopUpdateNotice ? (
-                      <SettingsAlert
-                        title={desktopUpdateNotice.title}
-                        message={desktopUpdateNotice.message}
-                        variant={desktopUpdateNotice.variant}
-                        actionLabel={desktopUpdateNotice.actionLabel}
-                        onAction={desktopUpdateNotice.actionLabel ? () => {
-                          if (desktopUpdateNotice.actionKind === 'install') {
-                            void installDesktopUpdate();
-                            return;
-                          }
-                          void openDesktopReleasePage();
-                        } : undefined}
-                      />
-                    ) : (
-                      <p className="text-xs leading-6 text-muted-text">
-                        {t('settings.desktopCurrentNoStatus')}
-                      </p>
-                    )}
-                  </div>
-                ) : null}
+                {/* 内部预览构建不提供「检查更新 / 前往下载 / 重启安装」入口，仅保留版本号展示 */}
                 {WEB_BUILD_INFO.isFallbackVersion ? (
                   <p className="text-xs leading-6 text-amber-700 dark:text-amber-300">
                     {t('settings.fallbackVersionWarning')}
@@ -1811,8 +1765,8 @@ const SettingsPage: React.FC = () => {
                 </div>
               </SettingsSectionCard>
             ) : null}
-            {!trimmedSearchQuery && activeCategory === 'base' ? <AppearanceSettingsCard /> : null}
-            {!trimmedSearchQuery && activeCategory === 'base' ? <MacroSourceCard /> : null}
+            {!trimmedSearchQuery && activeCategory === 'general' ? <AppearanceSettingsCard /> : null}
+            {!trimmedSearchQuery && activeCategory === 'general' ? <MacroSourceCard /> : null}
             {!trimmedSearchQuery && activeCategory === 'base' ? (
               <SettingsSectionCard
                 title={t('settings.intelligentImport')}

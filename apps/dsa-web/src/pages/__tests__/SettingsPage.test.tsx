@@ -1,13 +1,12 @@
 import type React from 'react';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { createMemoryRouter, RouterProvider, Outlet } from 'react-router-dom';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveWebBuildInfo } from '../../utils/constants';
 import { resetSharedDesktopUpdateState } from '../../desktop/updateStore';
 import type { SetupStatusResponse } from '../../types/systemConfig';
 import { createParsedApiError, type ParsedApiError } from '../../api/error';
 import SettingsPage from '../SettingsPage';
-import { DesktopUpdateIndicator } from '../../components/layout/DesktopUpdateIndicator';
 
 function renderSettingsPage(initialEntries: string[] = ['/settings']) {
   const router = createMemoryRouter(
@@ -560,33 +559,6 @@ function createDeferred<T>() {
 }
 
 
-function renderDesktopUpdateEntries(lateMount = false) {
-  const router = createMemoryRouter([{
-    element: <><DesktopUpdateIndicator /><Outlet /></>,
-    children: [
-      { path: '/header', element: null },
-      { path: '/settings', element: <SettingsPage /> },
-    ],
-  }], { initialEntries: [lateMount ? '/header' : '/settings'] });
-  return { ...render(<RouterProvider router={router} />), router };
-}
-
-function hangDesktopUpdateCheck() {
-  let resolveCheck: ((value: unknown) => void) | undefined;
-  desktopCheckForUpdates.mockImplementation(
-    () => new Promise((resolve) => {
-      resolveCheck = resolve;
-    }),
-  );
-  return {
-    async finish(value: unknown) {
-      await act(async () => {
-        resolveCheck?.(value);
-      });
-    },
-  };
-}
-
 describe('SettingsPage', () => {
   beforeEach(() => {
     editorTestMode.real = false;
@@ -765,7 +737,9 @@ describe('SettingsPage', () => {
     renderSettingsPage(['/settings?category=system#desktop-version-info']);
 
     await waitFor(() => expect(setActiveCategory).toHaveBeenCalledWith('system'));
-    expect(await screen.findByText('桌面端更新')).toBeInTheDocument();
+    // 版本信息仍可定位，但不再有更新入口
+    expect(await screen.findByRole('heading', { name: '版本信息' })).toBeInTheDocument();
+    expect(screen.queryByText('桌面端更新')).not.toBeInTheDocument();
     await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
   });
 
@@ -1052,7 +1026,8 @@ describe('SettingsPage', () => {
     await waitFor(() => {
       expect(desktopGetUpdateState).toHaveBeenCalledTimes(1);
     });
-    expect(screen.getByRole('button', { name: '检查更新' })).toBeInTheDocument();
+    // 内部预览构建不再渲染任何更新入口，畸形负载也不应导致异常
+    expect(screen.queryByRole('button', { name: '检查更新' })).not.toBeInTheDocument();
     expect(screen.queryByText('检查更新失败')).not.toBeInTheDocument();
     expect(screen.queryByText('发现新版本')).not.toBeInTheDocument();
   });
@@ -2834,7 +2809,7 @@ describe('SettingsPage', () => {
     expect(screen.queryByText('已导入 .env 备份并重新加载配置。')).not.toBeInTheDocument();
   });
 
-  it('renders desktop update notice when a newer release is available', async () => {
+  it('does not render any desktop update entry in system settings', async () => {
     desktopGetUpdateState.mockResolvedValue({
       status: 'update-available',
       currentVersion: '3.12.0',
@@ -2846,152 +2821,14 @@ describe('SettingsPage', () => {
 
     renderSettingsPage();
 
-    expect(await screen.findByText(/发现新版本:当前 3\.12\.0，最新 3\.13\.0/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '前往下载' })).toBeInTheDocument();
-  });
-
-  it('checks desktop updates on demand and renders the latest-version state', async () => {
-    (window as { dsaDesktop?: unknown }).dsaDesktop = createDesktopRuntime();
-
-    renderSettingsPage();
-
-    fireEvent.click(await screen.findByRole('button', { name: '检查更新' }));
-
-    await waitFor(() => expect(desktopCheckForUpdates).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText('已是最新版本:当前桌面端已是最新版本。')).toBeInTheDocument();
-  });
-
-  it('opens GitHub release page from desktop update notice', async () => {
-    desktopGetUpdateState.mockResolvedValue({
-      status: 'update-available',
-      currentVersion: '3.12.0',
-      latestVersion: '3.13.0',
-      releaseUrl: 'https://github.com/ZhuLinsen/daily_stock_analysis/releases/tag/v3.13.0',
-      message: '发现新版本 3.13.0，可前往 GitHub Releases 下载更新。',
-    });
-    (window as { dsaDesktop?: unknown }).dsaDesktop = createDesktopRuntime();
-
-    renderSettingsPage();
-
-    fireEvent.click(await screen.findByRole('button', { name: '前往下载' }));
-
-    await waitFor(() => {
-      expect(desktopOpenReleasePage).toHaveBeenCalledWith(
-        'https://github.com/ZhuLinsen/daily_stock_analysis/releases/tag/v3.13.0'
-      );
-    });
-  });
-
-  it('renders downloaded desktop update and starts install on demand', async () => {
-    desktopGetUpdateState.mockResolvedValue({
-      status: 'update-downloaded',
-      updateMode: 'auto',
-      currentVersion: '3.12.0',
-      latestVersion: '3.13.0',
-      releaseUrl: 'https://github.com/ZhuLinsen/daily_stock_analysis/releases/tag/v3.13.0',
-      message: '新版本 3.13.0 已下载，可重启应用完成安装。',
-      downloadPercent: 100,
-    });
-    (window as { dsaDesktop?: unknown }).dsaDesktop = createDesktopRuntime();
-
-    renderSettingsPage();
-
-    expect(await screen.findByText('更新已下载:新版本 3.13.0 已下载，可重启应用完成安装。')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '重启安装' }));
-
-    await waitFor(() => expect(desktopInstallDownloadedUpdate).toHaveBeenCalledTimes(1));
-  });
-
-  it('disables the settings check button while the header entry is already checking', async () => {
-    const pendingCheck = hangDesktopUpdateCheck();
-    (window as { dsaDesktop?: unknown }).dsaDesktop = createDesktopRuntime();
-
-    renderDesktopUpdateEntries();
-
-    fireEvent.click(await screen.findByRole('button', { name: '桌面端更新' }));
-    fireEvent.click(
-      within(screen.getByRole('dialog', { name: '桌面端更新' })).getByRole('button', { name: '检查更新' }),
-    );
-
-    await waitFor(() => expect(desktopCheckForUpdates).toHaveBeenCalledTimes(1));
-
-    const settingsCard = await waitFor(() => {
-      const card = document.querySelector('#desktop-version-info');
-      expect(card).not.toBeNull();
-      expect(within(card as HTMLElement).getByRole('button', { name: '检查中...' })).toBeDisabled();
-      return card as HTMLElement;
-    });
-    const settingsButton = within(settingsCard).getByRole('button', { name: '检查中...' });
-
-    fireEvent.click(settingsButton);
-    expect(desktopCheckForUpdates).toHaveBeenCalledTimes(1);
-
-    await pendingCheck.finish({
-      status: 'up-to-date',
-      currentVersion: '3.12.0',
-      latestVersion: '3.12.0',
-      message: '当前桌面端已是最新版本。',
-    });
-  });
-
-  it('does not start a second check from the header while settings is already checking', async () => {
-    const pendingCheck = hangDesktopUpdateCheck();
-    (window as { dsaDesktop?: unknown }).dsaDesktop = createDesktopRuntime();
-
-    renderDesktopUpdateEntries();
-
-    const settingsCard = await waitFor(() => {
-      const card = document.querySelector('#desktop-version-info');
-      expect(card).not.toBeNull();
-      return card as HTMLElement;
-    });
-    fireEvent.click(within(settingsCard).getByRole('button', { name: '检查更新' }));
-
-    await waitFor(() => expect(desktopCheckForUpdates).toHaveBeenCalledTimes(1));
-    expect(within(settingsCard).getByRole('button', { name: '检查中...' })).toBeDisabled();
-
-    fireEvent.click(screen.getByRole('button', { name: '桌面端更新' }));
+    // 版本信息卡片仍然展示版本号
+    expect(await screen.findByRole('heading', { name: '版本信息' })).toBeInTheDocument();
+    // 内部预览构建不提供「检查更新 / 前往下载 / 重启安装」入口
     expect(screen.queryByRole('button', { name: '检查更新' })).not.toBeInTheDocument();
-    fireEvent.click(within(settingsCard).getByRole('button', { name: '检查中...' }));
-    expect(desktopCheckForUpdates).toHaveBeenCalledTimes(1);
-
-    await pendingCheck.finish({
-      status: 'up-to-date',
-      currentVersion: '3.12.0',
-      latestVersion: '3.12.0',
-      message: '当前桌面端已是最新版本。',
-    });
-  });
-
-  it('keeps both entries busy when a late settings mount receives a stale idle snapshot', async () => {
-    const pendingCheck = hangDesktopUpdateCheck();
-    (window as { dsaDesktop?: unknown }).dsaDesktop = createDesktopRuntime();
-
-    const { router } = renderDesktopUpdateEntries(true);
-
-    fireEvent.click(await screen.findByRole('button', { name: '桌面端更新' }));
-    fireEvent.click(
-      within(screen.getByRole('dialog', { name: '桌面端更新' })).getByRole('button', { name: '检查更新' }),
-    );
-    await waitFor(() => expect(desktopCheckForUpdates).toHaveBeenCalledTimes(1));
-
-    await act(async () => { await router.navigate('/settings'); });
-
-    const settingsCard = await waitFor(() => {
-      const card = document.querySelector('#desktop-version-info');
-      expect(card).not.toBeNull();
-      return card as HTMLElement;
-    });
-    expect(within(settingsCard).getByRole('button', { name: '检查中...' })).toBeDisabled();
-    expect(desktopCheckForUpdates).toHaveBeenCalledTimes(1);
-
-    await pendingCheck.finish({
-      status: 'up-to-date',
-      currentVersion: '3.12.0',
-      latestVersion: '3.12.0',
-      message: '当前桌面端已是最新版本。',
-    });
+    expect(screen.queryByRole('button', { name: '前往下载' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '重启安装' })).not.toBeInTheDocument();
+    expect(screen.queryByText('桌面端更新')).not.toBeInTheDocument();
+    expect(screen.queryByText('发现新版本')).not.toBeInTheDocument();
   });
   describe('unsaved changes navigation guard (issue #1948 point 4)', () => {
     let beforeUnloadListeners: Array<(event: BeforeUnloadEvent) => void>;

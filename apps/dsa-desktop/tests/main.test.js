@@ -104,6 +104,20 @@ function loadMainModule(t, options = {}) {
   return mainModule;
 }
 
+// 桌面端更新检查默认关闭（fork 发行版不再跟随上游 Release）。
+// 涉及更新链路的用例必须在 loadMainModule 之前显式打开 DSA_DESKTOP_UPDATE_CHECK=1。
+function enableDesktopUpdateCheckForTest(t) {
+  const previous = process.env.DSA_DESKTOP_UPDATE_CHECK;
+  process.env.DSA_DESKTOP_UPDATE_CHECK = '1';
+  t.after(() => {
+    if (previous === undefined) {
+      delete process.env.DSA_DESKTOP_UPDATE_CHECK;
+    } else {
+      process.env.DSA_DESKTOP_UPDATE_CHECK = previous;
+    }
+  });
+}
+
 test('parseSemver accepts stable and prerelease tags', (t) => {
   const mainModule = loadMainModule(t);
 
@@ -790,6 +804,7 @@ test('fetchLatestReleaseJson rejects when response stream errors', async (t) => 
 });
 
 test('auto download prompt falls back to error when install path fails', async (t) => {
+  enableDesktopUpdateCheckForTest(t);
   const updaterEvents = {};
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsa desktop updater '));
   const exeDir = path.join(tempRoot, 'app');
@@ -873,6 +888,7 @@ test('auto download prompt falls back to error when install path fails', async (
 });
 
 test('auto update backup copies Screening hotspot detail directories recursively', async (t) => {
+  enableDesktopUpdateCheckForTest(t);
   const updaterEvents = {};
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsa desktop updater details '));
   const exeDir = path.join(tempRoot, 'app');
@@ -1334,6 +1350,7 @@ test('restorePackagedRuntimeStateFromBackup skips backup when app version did no
 });
 
 test('createWindow startup path does not throw ReferenceError after restore result handling', async (t) => {
+  enableDesktopUpdateCheckForTest(t);
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsa-desktop-startup-'));
   const appDir = path.join(tempRoot, 'app');
   const userDataDir = path.join(tempRoot, 'userData');
@@ -1474,6 +1491,9 @@ test('createWindow startup path does not throw ReferenceError after restore resu
     },
   });
 
+  // 该用例只验证启动链路不抛错、加载顺序正确；真实耗时用的开屏停留在这里关掉。
+  mainModule.__setSplashHoldAfterPassMsForTest(0);
+
   await new Promise((resolve) => {
     setTimeout(resolve, 80);
   });
@@ -1502,6 +1522,7 @@ test('createWindow startup path does not throw ReferenceError after restore resu
 });
 
 test('manual desktop update check rejects overlapping in-flight requests', async (t) => {
+  enableDesktopUpdateCheckForTest(t);
   const mainModule = loadMainModule(t);
   let releaseCheck;
   const pendingCheck = new Promise((resolve) => {
@@ -1542,6 +1563,31 @@ test('manual desktop update check rejects overlapping in-flight requests', async
   assert.equal(started, 1);
   assert.equal(firstState.status, mainModule.UPDATE_STATUS.UPDATE_AVAILABLE);
   assert.equal(firstState.latestVersion, '3.13.0');
+});
+
+test('desktop update check stays disabled by default', async (t) => {
+  // 不设置 DSA_DESKTOP_UPDATE_CHECK：默认不应该请求 GitHub，状态保持 idle 且没有错误文案。
+  const mainModule = loadMainModule(t);
+  let checkerInvocations = 0;
+
+  mainModule.__setDesktopUpdateCheckerForTest(async ({ currentVersion }) => {
+    checkerInvocations += 1;
+    return {
+      status: mainModule.UPDATE_STATUS.UPDATE_AVAILABLE,
+      currentVersion,
+      latestVersion: '3.35.0',
+    };
+  });
+
+  t.after(() => {
+    mainModule.__setDesktopUpdateCheckerForTest(null);
+  });
+
+  const manualState = await mainModule.__getIpcMainHandler('desktop:check-for-updates')();
+  assert.equal(checkerInvocations, 0, '更新检查关闭时不应调用 release 检查函数');
+  assert.equal(manualState.status, mainModule.UPDATE_STATUS.IDLE);
+  assert.equal(manualState.message, '');
+  assert.notEqual(manualState.latestVersion, '3.35.0');
 });
 
 test('stopBackend waits for backend process exit', async (t) => {

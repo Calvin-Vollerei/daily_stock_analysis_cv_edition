@@ -385,7 +385,17 @@
         "use strict";
 
         // ----------------------------- 配置 -----------------------------
-        const BACKEND = "http://127.0.0.1:8000";
+        // 端口由主进程通过 ?dsaPort=xxx 传入（实际端口是动态的）。
+      // 直接打开本页调试时没有该参数，回落到 8000。
+      const INJECTED_PORT = Number.parseInt(
+        new URLSearchParams(window.location.search).get("dsaPort") || "",
+        10
+      );
+      const BACKEND_PORT =
+        Number.isInteger(INJECTED_PORT) && INJECTED_PORT > 0 && INJECTED_PORT < 65536
+          ? INJECTED_PORT
+          : 8000;
+      const BACKEND = "http://127.0.0.1:" + BACKEND_PORT;
         const BRIDGE = "http://127.0.0.1:18999";
         const SECTOR = "http://127.0.0.1:8799";
 
@@ -404,7 +414,7 @@
           {
             id: "backend",
             name: "后端服务",
-            endpoint: "127.0.0.1:8000",
+            endpoint: "127.0.0.1:" + BACKEND_PORT,
             required: true,
             probe: async () => {
               const data = await getJson(BACKEND + "/api/health", PROBE_TIMEOUT_MS);
@@ -571,6 +581,25 @@
           return { ok: false, detail: String((lastErr && lastErr.message) || lastErr || "未知错误") };
         }
 
+        let maximRevealed = false;
+
+        // 必需项全部通过就立刻展示格言 + 淡出进度条。
+        // 不能等可选项：可选项各自要重试到 30 秒，而桌面端在后端就绪（约 15 秒）就切主界面了。
+        function revealMaxim() {
+          el.barWrap.classList.add("is-fading");
+          el.barMeta.classList.add("is-fading");
+
+          if (!el.showcase.dataset.customized) {
+            el.showcase.innerHTML =
+              '<div class="showcase-quote">' +
+              '<p class="quote-zh">华尔街有老交易员，也有大胆交易员，但没有又老又大胆的交易员。</p>' +
+              '<p class="quote-en">There are old traders and bold traders, but no old bold traders.</p>' +
+              "</div>";
+            el.showcase.dataset.customized = "1";
+          }
+          el.showcase.className = "showcase show";
+        }
+
         async function runAll(userTriggered) {
           if (state.running) return;
           state.running = true;
@@ -585,6 +614,15 @@
           el.badge.textContent = "启动自检";
           setProgress(0, CHECKS.length);
           buildRows();
+
+          // 兜底：无论自检快慢/成败，2.5 秒后都展示格言。
+          // 这样开屏不会因为探针重试（最长 30 秒）而永远停在进度条上。
+          window.setTimeout(() => {
+            if (!maximRevealed) {
+              maximRevealed = true;
+              revealMaxim();
+            }
+          }, 2500);
 
           const startedAt = Date.now();
           let done = 0;
@@ -609,6 +647,18 @@
             }
 
             setProgress(done, CHECKS.length);
+
+            // 必需项全过 → 立刻显示格言，不等可选项慢慢重试
+            if (!maximRevealed) {
+              const allRequiredPassed = CHECKS.filter((c) => c.required).every((c) => {
+                const r = state.results.get(c.id);
+                return Boolean(r && r.ok);
+              });
+              if (allRequiredPassed) {
+                maximRevealed = true;
+                revealMaxim();
+              }
+            }
 
             // 保证每一项的结果至少可见 MIN_ITEM_MS，否则动画一闪而过
             const spent = Date.now() - itemStartedAt;
@@ -651,19 +701,8 @@
             window.__dsaSelfCheckDone = true;
 
             // 进度条渐渐隐去，把位置让给格言
-            el.barWrap.classList.add("is-fading");
-            el.barMeta.classList.add("is-fading");
-
-            // 展示位：自检通过后显示中英文投资格言
-            if (!el.showcase.dataset.customized) {
-              el.showcase.innerHTML =
-                '<div class="showcase-quote">' +
-                '<p class="quote-zh">华尔街有老交易员，也有大胆交易员，但没有又老又大胆的交易员。</p>' +
-                '<p class="quote-en">There are old traders and bold traders, but no old bold traders.</p>' +
-                "</div>";
-              el.showcase.dataset.customized = "1";
-            }
-            el.showcase.className = "showcase show";
+            maximRevealed = true;
+            revealMaxim();
 
             // 进度条走满后停留 3.6 秒，让格言完整呈现再进入主界面
             setTimeout(() => {

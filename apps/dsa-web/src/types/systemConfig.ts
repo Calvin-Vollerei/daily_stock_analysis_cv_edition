@@ -1,4 +1,5 @@
 export type SystemConfigCategory =
+  | 'general'
   | 'base'
   | 'data_source'
   | 'ai_model'

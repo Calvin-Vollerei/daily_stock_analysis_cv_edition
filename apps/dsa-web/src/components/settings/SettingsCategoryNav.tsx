@@ -77,18 +77,20 @@ export const SettingsCategoryNav: React.FC<SettingsCategoryNavProps> = ({
                   </span>
                 ) : null}
               </span>
-              <Badge
-                variant={isActive ? 'info' : 'default'}
-                size="sm"
-                className={cn(
-                  'shrink-0 px-1.5 py-0 text-[11px]',
-                  isActive
-                    ? 'settings-accent-badge border-[hsl(var(--primary)/0.32)]'
-                    : 'border-[var(--settings-border)] bg-[var(--settings-surface)] text-muted-text',
-                )}
-              >
-                {count}
-              </Badge>
+              {count > 0 ? (
+                <Badge
+                  variant={isActive ? 'info' : 'default'}
+                  size="sm"
+                  className={cn(
+                    'shrink-0 px-1.5 py-0 text-[11px]',
+                    isActive
+                      ? 'settings-accent-badge border-[hsl(var(--primary)/0.32)]'
+                      : 'border-[var(--settings-border)] bg-[var(--settings-surface)] text-muted-text',
+                  )}
+                >
+                  {count}
+                </Badge>
+              ) : null}
             </button>
           );
         })}

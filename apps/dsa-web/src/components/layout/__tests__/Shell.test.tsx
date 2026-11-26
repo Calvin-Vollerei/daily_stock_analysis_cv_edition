@@ -87,7 +87,7 @@ describe('Shell', () => {
     expect(screen.queryByRole('button', { name: '桌面端更新' })).not.toBeInTheDocument();
   });
 
-  it('shows the desktop update entry in Electron runtime', async () => {
+  it('keeps hiding the desktop update entry in Electron runtime', () => {
     (window as { dsaDesktop?: unknown }).dsaDesktop = {
       version: '3.30.0',
       getUpdateState: vi.fn().mockResolvedValue({ status: 'idle', currentVersion: '3.30.0' }),
@@ -106,7 +106,11 @@ describe('Shell', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByRole('button', { name: '桌面端更新' })).toBeInTheDocument();
+    // 内部预览构建不允许出现任何更新入口
+    expect(screen.queryByRole('button', { name: '桌面端更新' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '检查更新' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '前往下载' })).not.toBeInTheDocument();
+    expect(document.querySelector('[data-testid="desktop-update-badge"]')).toBeNull();
   });
 
   it('shows a confirmation dialog before logout', async () => {

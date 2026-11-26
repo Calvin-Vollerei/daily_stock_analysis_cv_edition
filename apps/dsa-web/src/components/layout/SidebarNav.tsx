@@ -109,7 +109,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ collapsed = false, onNav
         ) : null}
       </div>
 
-      <nav className={cn('flex flex-col gap-1.5', isRail ? 'min-h-0 overflow-y-auto' : 'flex-1')} aria-label={t('layout.mainNav')}>
+      <nav className={cn('flex flex-col gap-4', isRail ? 'min-h-0 overflow-y-auto' : 'flex-1')} aria-label={t('layout.mainNav')}>
         {NAV_GROUPS.map((group, groupIndex) => (
           <React.Fragment key={group.key}>
             {!collapsed && !isRail ? (
@@ -163,10 +163,9 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ collapsed = false, onNav
             })}
           </React.Fragment>
         ))}
-
       </nav>
 
-      <div className="mt-1.5 flex shrink-0 flex-col gap-1.5">
+      <div className="mt-1.5 flex shrink-0 flex-col gap-4">
         <ThemeToggle
           variant={isRail ? 'rail' : 'nav'}
           collapsed={collapsed}
