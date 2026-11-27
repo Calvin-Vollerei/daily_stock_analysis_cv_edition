@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 > Release notes are generated from merged PRs and archived here by version. For the published notes, see [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases).
 
+## [3.35.0-cv-edition-patch2] - 2026-11-27
+
+CV Edition 维护版：把「能录入什么」写进界面，并让外部 AI 助手一键接管持仓导入。
+
+- [新功能] 持仓穿透卡片真正可用：新增 `GET /api/v1/portfolio/lookthrough`，按「行业中间层 → 本地快照 → 404 空态」三级降级，永不 500。
+- [新功能] 穿透卡片隐藏后保留一行「恢复显示」入口，误点「不再显示」也能找回。
+- [新功能] 录入区的代码输入框下方常驻一行提示，标注可录入的品种（A股 / ETF / 港股 / 美股 / 日股 / 韩股 / 台股 / 场外基金 / GOLD_ / WMP_）。
+- [新功能] 「支持的产品类型」按钮打开完整清单抽屉：品种与代码示例、行情来源、四种录入方式、已安装的券商解析器（实时读取）、账户市场与成本口径。
+- [新功能] 新增给 AI 读的导入手册 `docs/portfolio-ai-import.md`，随安装包分发；新增 `GET /api/v1/portfolio/imports/ai-guide` 返回其绝对路径。
+- [新功能] 交易 / 资金流水 / 公司行为 / 券商流水四张卡片各带「AI 导入」按钮：复制手册路径到剪贴板，并把提示显示在触发它的那张卡片里。
+- [改进] 「券商 CSV 导入」更名为「券商流水导入」，界面不再出现 CSV 字样，避免被误解为导入持仓表。
+- [改进] 行业集中度饼图适配宽屏：画布加大、图例按占比降序并直接标注百分比、说明文字沉到卡片底部，移除重复的「Top1 权重」行。
+- [改进] 持仓录入区文案由「股票代码」改为「标的代码」，并新增一段支持范围说明。
+
 ## [3.35.0-cv-edition-patch1] - 2026-11-27
 
 CV Edition 维护版：补齐 11-26 打包时遗漏在旧开发副本中的功能，并修复行情、搜索与风险链路。发行与维护：Calvin Vollerei Studio。
