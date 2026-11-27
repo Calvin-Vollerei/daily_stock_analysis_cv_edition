@@ -12,6 +12,11 @@ import { PortfolioSignalSummary } from '../components/decision-signals/DecisionS
 import { useUiLanguage } from '../contexts/UiLanguageContext';
 import { formatUiText } from '../i18n/uiText';
 import { copyTextToClipboard } from '../utils/clipboard';
+import {
+  formatCacheStamp,
+  readPortfolioViewCache,
+  writePortfolioViewCache,
+} from '../utils/portfolioViewCache';
 import { PORTFOLIO_SUPPORT_TEXT, PORTFOLIO_TEXT } from '../locales/featureText';
 import { PortfolioSupportDrawer } from '../components/portfolio/PortfolioSupportDrawer';
 import type { FxRefreshFeedback } from '../utils/portfolioFormat';
@@ -744,6 +749,8 @@ const PortfolioPage: React.FC = () => {
   const [costMethod, setCostMethod] = useState<PortfolioCostMethod>('fifo');
   const [snapshot, setSnapshot] = useState<PortfolioSnapshotResponse | null>(null);
   const [risk, setRisk] = useState<PortfolioRiskResponse | null>(null);
+  // 打开页面先用上一轮结果渲染（stale-while-revalidate），新数据回来再替换。
+  const [cachedSnapshotAt, setCachedSnapshotAt] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [fxRefreshing, setFxRefreshing] = useState(false);
   const [fxRefreshFeedback, setFxRefreshFeedback] = useState<FxRefreshFeedback | null>(null);
@@ -824,6 +831,17 @@ const PortfolioPage: React.FC = () => {
 
   const queryAccountId = selectedAccount === 'all' ? undefined : selectedAccount;
   const refreshViewKey = `${selectedAccount === 'all' ? 'all' : `account:${selectedAccount}`}:cost:${costMethod}`;
+
+  // 先用本机缓存把上一次的持仓渲染出来，避免每次打开都看到空表等 1~2 秒。
+  useEffect(() => {
+    const cached = readPortfolioViewCache(refreshViewKey);
+    if (!cached) {
+      return;
+    }
+    setSnapshot((prev) => prev ?? cached.snapshot);
+    setRisk((prev) => prev ?? cached.risk);
+    setCachedSnapshotAt(cached.savedAt);
+  }, [refreshViewKey]);
   const refreshContextRef = useRef<FxRefreshContext>({ viewKey: refreshViewKey, requestId: 0 });
   const hasAccounts = accounts.length > 0;
   const writableAccount = selectedAccount === 'all' ? undefined : accounts.find((item) => item.id === selectedAccount);
@@ -898,6 +916,7 @@ const PortfolioPage: React.FC = () => {
         forceRefresh: options.forceRefresh,
       });
       setSnapshot(snapshotData);
+      setCachedSnapshotAt(null);
       setError(null);
 
       try {
@@ -907,8 +926,10 @@ const PortfolioPage: React.FC = () => {
           includeRealtime: true,
         });
         setRisk(riskData);
+        writePortfolioViewCache(refreshViewKey, snapshotData, riskData);
       } catch (riskErr) {
         setRisk(null);
+        writePortfolioViewCache(refreshViewKey, snapshotData, null);
         const parsed = getParsedApiError(riskErr);
         setRiskWarning(parsed.message || '风险数据获取失败，已降级为仅展示快照数据。');
       }
@@ -919,7 +940,7 @@ const PortfolioPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [queryAccountId, costMethod]);
+  }, [queryAccountId, costMethod, refreshViewKey]);
 
   const loadEventsPage = useCallback(async (page: number) => {
     setEventLoading(true);
@@ -1712,6 +1733,11 @@ const PortfolioPage: React.FC = () => {
                   {accountDeleteLoading ? text.deletingAccount : text.deleteAccount}
                 </button>
               </div>
+              {cachedSnapshotAt && isLoading ? (
+                <div className="mt-2 text-[11px] text-secondary">
+                  {formatUiText(text.cachedSnapshotHint, { time: formatCacheStamp(cachedSnapshotAt) })}
+                </div>
+              ) : null}
             </div>
           </div>
         ) : (
