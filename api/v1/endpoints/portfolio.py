@@ -35,9 +35,15 @@ from api.v1.schemas.portfolio import (
     PortfolioTradeListResponse,
     PortfolioTradeCreateRequest,
 )
+from src.config import get_config
 from src.services.task_queue import get_task_queue
 from src.services.portfolio_import_service import PortfolioImportService
 from src.services.portfolio_risk_service import PortfolioRiskService
+from src.services.portfolio_sector_layer import (
+    BYPASS_LOCAL,
+    BYPASS_PROXY,
+    fetch_sector_layer_risk,
+)
 from src.services.portfolio_service import (
     PortfolioBusyError,
     PortfolioConflictError,
@@ -660,8 +666,30 @@ def get_risk_report(
         True,
         description="Whether today's risk snapshot should try realtime quotes before historical close fallback",
     ),
+    sector_layer: str = Query(
+        BYPASS_PROXY,
+        description=(
+            "Industry source: 'proxy' prefers the configured sector layer and falls back "
+            "to the built-in computation; 'local' always uses the built-in computation"
+        ),
+    ),
 ) -> PortfolioRiskResponse:
-    service = PortfolioRiskService()
+    config = get_config()
+    if sector_layer != BYPASS_LOCAL:
+        # The sector layer only rewrites industry weights; it answers with the same
+        # payload contract. Any failure here must degrade to the built-in path, never
+        # surface as a request error.
+        layer_payload = fetch_sector_layer_risk(
+            config,
+            account_id=account_id,
+            as_of=as_of,
+            cost_method=cost_method,
+            include_realtime=include_realtime,
+        )
+        if layer_payload is not None:
+            return PortfolioRiskResponse(**layer_payload)
+
+    service = PortfolioRiskService(config=config)
     try:
         data = service.get_risk_report(
             account_id=account_id,

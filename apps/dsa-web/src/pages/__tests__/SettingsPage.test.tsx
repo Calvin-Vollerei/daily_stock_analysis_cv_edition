@@ -157,6 +157,7 @@ vi.mock('../../components/settings', async () => {
   return ({
   AuthSettingsCard: () => <div>认证与登录保护</div>,
   ChangePasswordCard: () => <div>修改密码</div>,
+  GeneralSettingsCard: () => <div>通用设置</div>,
   IntelligentImport: ({
     onMerged,
   }: {

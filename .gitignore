@@ -94,3 +94,11 @@ docs/specs/
 
 # 本地合并 / 备份残留
 *.orig
+
+# 桌面端 sidecar：真实账户同步脚本含有个人账本信息（账户名/产品码/本机路径），
+# 属本机私有资产，绝不进仓库也绝不进安装包；仓库只保留中性模板，见 docs/desktop-sidecars.md
+scripts/desktop-sidecars/
+
+# Electron 打包 / 取证临时产物
+/apps/dsa-desktop/dist-*/
+builder-debug.yml

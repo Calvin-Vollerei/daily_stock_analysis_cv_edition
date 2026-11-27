@@ -33,6 +33,7 @@ vi.mock('../../api/systemConfig', () => ({
 vi.mock('../../components/settings', () => ({
   AuthSettingsCard: () => <div>auth</div>,
   ChangePasswordCard: () => <div>password</div>,
+  GeneralSettingsCard: () => <div>general</div>,
   IntelligentImport: () => <div>import</div>,
   LLMChannelEditor: ({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void }) => {
     const [baseUrl, setBaseUrl] = useState('https://saved.example/v1');

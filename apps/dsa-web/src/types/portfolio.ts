@@ -180,6 +180,45 @@ export interface PortfolioRiskResponse {
   decisionSignalRisk?: PortfolioDecisionSignalRiskBlock;
 }
 
+/** 持仓穿透：某只个股通过哪些 ETF/基金持有，以及各自贡献的权重。 */
+export interface PortfolioLookThroughViaItem {
+  symbol: string;
+  name?: string;
+  weightPct: number;
+}
+
+export interface PortfolioLookThroughStockItem {
+  code: string;
+  name?: string;
+  weightPct: number;
+  marketValue: number;
+  via?: PortfolioLookThroughViaItem[];
+}
+
+export interface PortfolioLookThroughCoverage {
+  penetratedPct: number;
+  unpenetratedPct: number;
+  fixedIncomePct: number;
+  nonEquityPct: number;
+}
+
+/**
+ * 持仓穿透（理论个股头寸）响应。
+ *
+ * 说明：该接口由外部持仓穿透数据服务提供，开源版后端默认没有实现；
+ * 前端调用方必须按「不可用」优雅降级，不得假设字段一定存在。
+ */
+export interface PortfolioLookThroughResponse {
+  asOf?: string;
+  accountId?: number | null;
+  generatedAt?: string;
+  stockCount: number;
+  penetratedWeightPct: number;
+  totalMarketValue: number;
+  stocks: PortfolioLookThroughStockItem[];
+  coverage: PortfolioLookThroughCoverage;
+}
+
 export interface PortfolioTradeCreateRequest {
   accountId: number;
   symbol: string;

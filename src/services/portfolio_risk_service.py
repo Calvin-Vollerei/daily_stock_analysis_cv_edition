@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import date, timedelta
 from threading import Lock
 from typing import Any, Dict, List, Optional, Tuple
@@ -29,6 +30,20 @@ class PortfolioRiskService:
     _BELONG_BOARDS_CACHE_TTL_SECONDS = 24 * 60 * 60
     _belong_boards_cache_lock = Lock()
     _belong_boards_cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
+
+    # Empty or failed board lookups get their own short-lived negative cache.
+    # ETFs and off-exchange funds have no exchange board at all, so without this
+    # every single risk request re-paid ~3.6s per such holding and the browser
+    # request timed out before the risk block could render.
+    _BELONG_BOARDS_FAILURE_TTL_SECONDS = 5 * 60
+    _belong_boards_failure_cache: Dict[str, float] = {}
+    _belong_boards_failure_lock = Lock()
+
+    # Hard wall-clock budget for the network part of the sector block. The risk
+    # endpoint must stay well below the Web client request timeout; anything that
+    # does not resolve in time is reported as unclassified instead of blocking.
+    _SECTOR_LOOKUP_BUDGET_SECONDS = 4.0
+    _SECTOR_LOOKUP_WORKERS = 8
 
     def __init__(
         self,
@@ -335,23 +350,13 @@ class PortfolioRiskService:
         as_of_date: date,
     ) -> Dict[str, Any]:
         total_mv = float(snapshot.get("total_market_value", 0.0) or 0.0)
-        sector_exposure: Dict[str, float] = {}
-        sector_symbols: Dict[str, set] = {}
-        coverage = {
-            "classified_count": 0,
-            "unclassified_count": 0,
-            "failed_count": 0,
-        }
-        errors: List[str] = []
-        board_cache: Dict[Tuple[str, str], str] = {}
-
+        holdings: List[Dict[str, Any]] = []
         for account in snapshot.get("accounts", []):
             for pos in account.get("positions", []):
                 symbol = str(pos.get("symbol") or "").strip().upper()
-                market = str(pos.get("market") or account.get("market") or "").strip().lower()
                 if not symbol:
                     continue
-
+                market = str(pos.get("market") or account.get("market") or "").strip().lower()
                 market_value = float(pos.get("market_value_base") or 0.0)
                 valuation_currency = str(pos.get("valuation_currency") or account.get("base_currency") or "CNY")
                 converted, _, _ = self.portfolio_service.convert_amount(
@@ -360,16 +365,36 @@ class PortfolioRiskService:
                     to_currency="CNY",
                     as_of_date=as_of_date,
                 )
+                holdings.append({"symbol": symbol, "market": market, "exposure": converted})
 
-                sector = self._resolve_primary_sector(
-                    symbol=symbol,
-                    market=market,
-                    board_cache=board_cache,
-                    coverage=coverage,
-                    errors=errors,
+        resolved, failed_keys, errors = self._resolve_sector_names(holdings)
+
+        coverage = {
+            "classified_count": 0,
+            "unclassified_count": 0,
+            "failed_count": 0,
+        }
+        sector_exposure: Dict[str, float] = {}
+        sector_symbols: Dict[str, set] = {}
+        sector_by_key: Dict[Tuple[str, str], Optional[str]] = {}
+        for item in holdings:
+            key = (item["symbol"], item["market"])
+            if key not in sector_by_key:
+                sector_by_key[key] = self._resolve_primary_sector(
+                    symbol=item["symbol"],
+                    market=item["market"],
+                    resolved=resolved,
                 )
-                sector_exposure[sector] = sector_exposure.get(sector, 0.0) + converted
-                sector_symbols.setdefault(sector, set()).add(symbol)
+            sector = sector_by_key[key]
+            if sector:
+                coverage["classified_count"] += 1
+            else:
+                coverage["unclassified_count"] += 1
+                if key in failed_keys:
+                    coverage["failed_count"] += 1
+                sector = "UNCLASSIFIED"
+            sector_exposure[sector] = sector_exposure.get(sector, 0.0) + item["exposure"]
+            sector_symbols.setdefault(sector, set()).add(item["symbol"])
 
         rows = []
         for sector, exposure in sector_exposure.items():
@@ -390,48 +415,140 @@ class PortfolioRiskService:
             "total_market_value": round(total_mv, 6),
             "top_weight_pct": round(float(top_weight), 4),
             "alert": bool(top_weight >= threshold_pct),
-            "top_sectors": rows[:10],
+            "top_sectors": rows,
             "coverage": coverage,
-            "errors": errors[:20],
+            "errors": errors,
         }
 
-    def _resolve_primary_sector(
+    def _resolve_sector_names(
         self,
+        holdings: List[Dict[str, Any]],
+    ) -> Tuple[Dict[Tuple[str, str], str], set, List[str]]:
+        """Resolve industry names for the held A-share identities.
+
+        Every lookup goes through the provider rate limiter, so the whole batch
+        runs in parallel inside a hard wall-clock budget. Symbols that do not
+        answer in time stay unresolved (reported as unclassified) and keep
+        working in the background, which keeps the risk endpoint responsive even
+        when an upstream data source hangs.
+        """
+        resolved: Dict[Tuple[str, str], str] = {}
+        failed_keys: set = set()
+        errors: List[str] = []
+        pending: List[Tuple[str, str]] = []
+        seen = set()
+
+        for item in holdings:
+            key = (item["symbol"], item["market"])
+            if key in seen:
+                continue
+            seen.add(key)
+            if key[1] != "cn" or not self._is_exchange_security(key[0]):
+                continue
+            if self._sector_negative_cache_hit(key[0]):
+                continue
+            pending.append(key)
+
+        if not pending:
+            return resolved, failed_keys, errors
+
+        manager = self._get_data_manager()
+        if manager is None:
+            return resolved, failed_keys, errors
+
+        budget = self._sector_lookup_budget_seconds()
+        if budget <= 0:
+            return resolved, failed_keys, errors
+
+        executor = ThreadPoolExecutor(
+            max_workers=max(1, min(self._SECTOR_LOOKUP_WORKERS, len(pending))),
+            thread_name_prefix="dsa-sector",
+        )
+        try:
+            futures = {
+                executor.submit(self._fetch_belong_boards, key[0]): key
+                for key in pending
+            }
+            done, _pending = wait(list(futures), timeout=budget)
+            for future in done:
+                key = futures[future]
+                try:
+                    boards = future.result()
+                except Exception as exc:
+                    failed_keys.add(key)
+                    errors.append(f"{key[0]}: {exc}")
+                    self._remember_sector_failure(key[0])
+                    continue
+                sector_name = self._pick_primary_board_name(boards)
+                if sector_name:
+                    resolved[key] = sector_name
+                else:
+                    self._remember_sector_failure(key[0])
+        finally:
+            # Never block the response on the provider rate limiter: abandoned
+            # lookups finish in the background and warm the caches for the next
+            # request.
+            executor.shutdown(wait=False)
+
+        if len(errors) > 20:
+            errors = errors[:20]
+        return resolved, failed_keys, errors
+
+    @staticmethod
+    def _is_exchange_security(symbol: str) -> bool:
+        """Only exchange securities have board membership; funds/理财 do not."""
+        return len(symbol) == 6 and symbol.isdigit()
+
+    @staticmethod
+    def _resolve_primary_sector(
         *,
         symbol: str,
         market: str,
-        board_cache: Dict[Tuple[str, str], str],
-        coverage: Dict[str, int],
-        errors: List[str],
-    ) -> str:
-        cache_key = (symbol, market)
-        if cache_key in board_cache:
-            return board_cache[cache_key]
+        resolved: Dict[Tuple[str, str], str],
+    ) -> Optional[str]:
+        """Return the batch-resolved industry for one held identity."""
+        return resolved.get((symbol, market))
 
-        if market != "cn":
-            coverage["unclassified_count"] += 1
-            board_cache[cache_key] = "UNCLASSIFIED"
-            return board_cache[cache_key]
-
+    def _sector_lookup_budget_seconds(self) -> float:
+        configured = getattr(
+            self.config,
+            "portfolio_risk_sector_budget_s",
+            self._SECTOR_LOOKUP_BUDGET_SECONDS,
+        )
         try:
-            boards = self._fetch_belong_boards(symbol)
-            sector_name = self._pick_primary_board_name(boards)
-            if sector_name:
-                coverage["classified_count"] += 1
-                board_cache[cache_key] = sector_name
-                return board_cache[cache_key]
-        except Exception as exc:
-            coverage["failed_count"] += 1
-            errors.append(f"{symbol}: {exc}")
+            return max(0.0, float(configured))
+        except (TypeError, ValueError):
+            return self._SECTOR_LOOKUP_BUDGET_SECONDS
 
-        coverage["unclassified_count"] += 1
-        board_cache[cache_key] = "UNCLASSIFIED"
-        return board_cache[cache_key]
+    def _sector_negative_cache_hit(self, symbol: str) -> bool:
+        cls = self.__class__
+        now = time.monotonic()
+        with cls._belong_boards_failure_lock:
+            expires_at = cls._belong_boards_failure_cache.get(symbol)
+            if expires_at is None:
+                return False
+            if expires_at > now:
+                return True
+            cls._belong_boards_failure_cache.pop(symbol, None)
+        return False
+
+    def _remember_sector_failure(self, symbol: str) -> None:
+        cls = self.__class__
+        with cls._belong_boards_failure_lock:
+            if len(cls._belong_boards_failure_cache) > 512:
+                now = time.monotonic()
+                for key in [key for key, exp in cls._belong_boards_failure_cache.items() if exp <= now]:
+                    cls._belong_boards_failure_cache.pop(key, None)
+            cls._belong_boards_failure_cache[symbol] = (
+                time.monotonic() + cls._BELONG_BOARDS_FAILURE_TTL_SECONDS
+            )
 
     @classmethod
     def clear_belong_boards_cache_for_tests(cls) -> None:
         with cls._belong_boards_cache_lock:
             cls._belong_boards_cache.clear()
+        with cls._belong_boards_failure_lock:
+            cls._belong_boards_failure_cache.clear()
 
     def _fetch_belong_boards(self, symbol: str) -> List[Dict[str, Any]]:
         cls = self.__class__
@@ -585,5 +702,5 @@ class PortfolioRiskService:
             "near_alert": len(warnings) > 0,
             "triggered_count": sum(1 for item in warnings if item["is_triggered"]),
             "near_count": len(warnings),
-            "items": warnings[:20],
+            "items": warnings,
         }

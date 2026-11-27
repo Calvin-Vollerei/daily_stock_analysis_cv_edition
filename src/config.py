@@ -1411,6 +1411,12 @@ class Config:
     portfolio_risk_stop_loss_alert_pct: float = 10.0
     portfolio_risk_stop_loss_near_ratio: float = 0.8
     portfolio_risk_lookback_days: int = 180
+    # 行业中间层（可选 sidecar）：留空表示不启用。启用后风险接口会优先取它的
+    # 季报行业口径，失败/超时立即回退本地计算，页面不受影响。
+    portfolio_sector_layer_url: str = ''
+    portfolio_sector_layer_timeout_s: float = 12.0
+    # 单次风险查询内允许花在联网行业板块查询上的墙钟预算（秒），0 表示只用缓存。
+    portfolio_risk_sector_budget_s: float = 4.0
     portfolio_fx_update_enabled: bool = True
 
     # Discord 机器人状态
@@ -2516,6 +2522,19 @@ class Config:
                 180,
                 field_name='PORTFOLIO_RISK_LOOKBACK_DAYS',
                 minimum=1,
+            ),
+            portfolio_sector_layer_url=(os.getenv('PORTFOLIO_SECTOR_LAYER_URL') or '').strip(),
+            portfolio_sector_layer_timeout_s=parse_env_float(
+                os.getenv('PORTFOLIO_SECTOR_LAYER_TIMEOUT_S'),
+                12.0,
+                field_name='PORTFOLIO_SECTOR_LAYER_TIMEOUT_S',
+                minimum=1.0,
+            ),
+            portfolio_risk_sector_budget_s=parse_env_float(
+                os.getenv('PORTFOLIO_RISK_SECTOR_BUDGET_S'),
+                4.0,
+                field_name='PORTFOLIO_RISK_SECTOR_BUDGET_S',
+                minimum=0.0,
             ),
             portfolio_fx_update_enabled=os.getenv('PORTFOLIO_FX_UPDATE_ENABLED', 'true').lower() == 'true',
             screening_enabled=parse_env_bool(os.getenv('SCREENING_ENABLED'), default=False),

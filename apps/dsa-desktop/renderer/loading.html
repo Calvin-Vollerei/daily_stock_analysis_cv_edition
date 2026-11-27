@@ -164,14 +164,31 @@
         height: 100%;
         width: 0%;
         border-radius: 999px;
-        background: linear-gradient(90deg, var(--accent), var(--ok));
+        /* 流光条纹：即使进度数值暂时不动，条本身也一直在流，
+           保证开屏页永远"活着"，完全不依赖后端返回。 */
+        background-image: linear-gradient(
+          90deg,
+          var(--accent) 0%,
+          var(--ok) 42%,
+          #7dd3fc 62%,
+          var(--accent) 100%
+        );
+        background-size: 220% 100%;
+        background-position: 0% 50%;
+        animation: barFlow 1.6s linear infinite;
         transition: width 0.45s cubic-bezier(0.4, 0, 0.2, 1);
         box-shadow: 0 0 14px rgba(56, 189, 248, 0.55);
+      }
+
+      @keyframes barFlow {
+        from { background-position: 0% 50%; }
+        to { background-position: -220% 50%; }
       }
 
       .bar.fail {
         background: linear-gradient(90deg, var(--danger), #b91c3c);
         box-shadow: 0 0 14px rgba(244, 63, 37, 0.5);
+        animation: none;
       }
 
       .bar-meta {
@@ -552,11 +569,42 @@
           if (detail !== undefined) det.textContent = detail;
         }
 
+        // 进度条：数值 + 时间双驱动。
+        // 冷启动后端要 10 秒以上才能响应，纯数值驱动会让进度条整段时间冻在 0%，
+        // 看上去就是"动画没了"。这里让条按时间自己往前爬，检查项完成时再往上跳，
+        // 所以进度条动画与后端是否响应完全解耦。
+        let barValue = 0;
+        const BAR_CEILING = 96; // 未完成前最多爬到这里，最后一格留给"走满"
+
+        function paintBar(value) {
+          barValue = Math.max(0, Math.min(100, value));
+          el.bar.style.width = barValue.toFixed(1) + "%";
+          el.pct.textContent = Math.round(barValue) + "%";
+          return barValue;
+        }
+
+        // 完成 done/total 项时至少到这个档位（只前进不后退）
         function setProgress(done, total) {
-          const pct = total === 0 ? 0 : Math.round((done / total) * 100);
-          el.bar.style.width = pct + "%";
-          el.pct.textContent = pct + "%";
-          return pct;
+          const pct = total === 0 ? 0 : (done / total) * 100;
+          return paintBar(Math.max(barValue, pct));
+        }
+
+        let barTicker = null;
+
+        function startBarTicker() {
+          if (barTicker) return;
+          barTicker = window.setInterval(() => {
+            if (barValue >= BAR_CEILING) return;
+            // 越接近上限爬得越慢，避免"假装马上完成"
+            const step = barValue < 55 ? 0.75 : barValue < 80 ? 0.35 : 0.12;
+            paintBar(Math.min(BAR_CEILING, barValue + step));
+          }, 120);
+        }
+
+        function stopBarTicker() {
+          if (!barTicker) return;
+          window.clearInterval(barTicker);
+          barTicker = null;
         }
 
         function setVerdict(kind, html) {
@@ -586,9 +634,9 @@
         // 必需项全部通过就立刻展示格言 + 淡出进度条。
         // 不能等可选项：可选项各自要重试到 30 秒，而桌面端在后端就绪（约 15 秒）就切主界面了。
         function revealMaxim() {
-          el.barWrap.classList.add("is-fading");
-          el.barMeta.classList.add("is-fading");
-
+          // 刻意不在这里淡出进度条：格言和进度条要同时在场。
+          // 旧实现 2.5 秒就把进度条淡成不可见，后端又慢，结果整页只剩静止文字，
+          // 用户看到的就是"进度条动画没了"。
           if (!el.showcase.dataset.customized) {
             el.showcase.innerHTML =
               '<div class="showcase-quote">' +
@@ -598,6 +646,10 @@
             el.showcase.dataset.customized = "1";
           }
           el.showcase.className = "showcase show";
+
+          // 告诉 Electron 主进程：开屏页该画的（进度条 + 格言）已经上屏。
+          // 主进程据此决定何时才允许切主界面，避免格言被截成半帧。
+          window.__dsaSelfCheckDone = true;
         }
 
         async function runAll(userTriggered) {
@@ -611,9 +663,12 @@
           el.verdict.className = "verdict";
           el.actions.className = "actions";
           el.bar.className = "bar";
+          el.barWrap.className = "bar-wrap";
+          el.barMeta.className = "bar-meta";
           el.badge.textContent = "启动自检";
-          setProgress(0, CHECKS.length);
           buildRows();
+          paintBar(0);
+          startBarTicker();
 
           // 兜底：无论自检快慢/成败，2.5 秒后都展示格言。
           // 这样开屏不会因为探针重试（最长 30 秒）而永远停在进度条上。
@@ -626,47 +681,53 @@
 
           const startedAt = Date.now();
           let done = 0;
+          el.stage.textContent = "正在自检…";
 
-          for (const check of CHECKS) {
-            if (state.aborted) break;
+          // 并行探测：串行时"后端服务"一项就能吃掉整个开屏页（冷启动 10 秒+），
+          // 其余四项一直挂在"等待中…"，整页看起来像卡死。
+          await Promise.all(
+            CHECKS.map(async (check) => {
+              if (state.aborted) return;
+              setRow(check.id, "active", "检测中…");
+              const itemStartedAt = Date.now();
+              const result = await probeOne(check);
+              if (state.aborted) return;
 
-            setRow(check.id, "active", "检测中…");
-            el.stage.textContent = "正在检查 " + check.name + "…";
+              state.results.set(check.id, result);
+              done += 1;
 
-            const itemStartedAt = Date.now();
-            const result = await probeOne(check);
-            state.results.set(check.id, result);
-            done += 1;
-
-            if (result.ok) {
-              setRow(check.id, "pass", result.detail);
-            } else if (check.required) {
-              setRow(check.id, "fail", result.detail);
-            } else {
-              setRow(check.id, "warn", result.detail + "（不影响进入）");
-            }
-
-            setProgress(done, CHECKS.length);
-
-            // 必需项全过 → 立刻显示格言，不等可选项慢慢重试
-            if (!maximRevealed) {
-              const allRequiredPassed = CHECKS.filter((c) => c.required).every((c) => {
-                const r = state.results.get(c.id);
-                return Boolean(r && r.ok);
-              });
-              if (allRequiredPassed) {
-                maximRevealed = true;
-                revealMaxim();
+              if (result.ok) {
+                setRow(check.id, "pass", result.detail);
+              } else if (check.required) {
+                setRow(check.id, "fail", result.detail);
+              } else {
+                setRow(check.id, "warn", result.detail + "（不影响进入）");
               }
-            }
 
-            // 保证每一项的结果至少可见 MIN_ITEM_MS，否则动画一闪而过
-            const spent = Date.now() - itemStartedAt;
-            if (spent < MIN_ITEM_MS) await sleep(MIN_ITEM_MS - spent);
-          }
+              setProgress(done, CHECKS.length);
+              el.stage.textContent = "已完成 " + done + "/" + CHECKS.length + " 项检查";
+
+              // 必需项全过 → 立刻显示格言，不等可选项慢慢重试
+              if (!maximRevealed) {
+                const allRequiredPassed = CHECKS.filter((c) => c.required).every((c) => {
+                  const r = state.results.get(c.id);
+                  return Boolean(r && r.ok);
+                });
+                if (allRequiredPassed) {
+                  maximRevealed = true;
+                  revealMaxim();
+                }
+              }
+
+              // 保证每一项的结果至少可见 MIN_ITEM_MS，否则动画一闪而过
+              const spent = Date.now() - itemStartedAt;
+              if (spent < MIN_ITEM_MS) await sleep(MIN_ITEM_MS - spent);
+            })
+          );
 
           if (state.aborted) {
             state.running = false;
+            stopBarTicker();
             return;
           }
 
@@ -682,7 +743,8 @@
           if (requiredFails.length === 0) {
             el.badge.textContent = "就绪";
             el.bar.className = "bar";
-            setProgress(CHECKS.length, CHECKS.length);
+            stopBarTicker();
+            paintBar(100);
             el.stage.textContent = "自检通过（" + elapsed + " 秒）";
 
             const warnNote = optionalFails.length
@@ -700,9 +762,13 @@
             // 告诉 Electron 主进程：自检已画完，可以切换主界面了
             window.__dsaSelfCheckDone = true;
 
-            // 进度条渐渐隐去，把位置让给格言
+            // 进度条走满后再淡出，把位置让给格言
             maximRevealed = true;
             revealMaxim();
+            window.setTimeout(() => {
+              el.barWrap.classList.add("is-fading");
+              el.barMeta.classList.add("is-fading");
+            }, 800);
 
             // 进度条走满后停留 3.6 秒，让格言完整呈现再进入主界面
             setTimeout(() => {
@@ -711,6 +777,8 @@
             }, HOLD_AFTER_PASS_MS);
           } else {
             el.badge.textContent = "未通过";
+            stopBarTicker();
+            paintBar(100);
             el.bar.className = "bar fail";
             el.stage.textContent = "自检未通过（" + elapsed + " 秒）";
 

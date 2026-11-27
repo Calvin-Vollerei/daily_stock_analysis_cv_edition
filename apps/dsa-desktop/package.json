@@ -1,6 +1,6 @@
 {
   "name": "daily-stock-analysis-desktop",
-  "version": "3.35.0-cv-edition",
+  "version": "3.35.0-cv-edition-patch1",
   "author": "Calvin Vollerei Studio",
   "private": true,
   "main": "main.js",
@@ -36,6 +36,10 @@
       {
         "from": "../../dist/backend/stock_analysis",
         "to": "backend/stock_analysis"
+      },
+      {
+        "from": "../../scripts/desktop-sidecars-example",
+        "to": "desktop-sidecars"
       }
     ],
     "win": {

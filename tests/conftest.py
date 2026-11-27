@@ -16,12 +16,28 @@ from warnings import warn
 import anyio.to_thread
 import fastapi.testclient
 import httpx
+import pytest
 import starlette.testclient
 from anyio._backends import _asyncio
 
 T = TypeVar("T")
 
 _original_call_soon_threadsafe = asyncio.BaseEventLoop.call_soon_threadsafe
+
+
+@pytest.fixture(autouse=True)
+def _reset_portfolio_risk_provider_caches():
+    """Keep per-process provider caches from leaking between tests.
+
+    ``PortfolioRiskService`` caches board lookups (positive and negative) on the
+    class so that repeated risk requests do not re-hit the rate-limited provider.
+    Tests that patch the lookup must therefore start from a clean cache.
+    """
+    from src.services.portfolio_risk_service import PortfolioRiskService
+
+    PortfolioRiskService.clear_belong_boards_cache_for_tests()
+    yield
+    PortfolioRiskService.clear_belong_boards_cache_for_tests()
 
 
 async def _shutdown_default_executor_inline(
@@ -249,3 +265,23 @@ class _ThreadlessTestClient:
 
 fastapi.testclient.TestClient = _ThreadlessTestClient
 starlette.testclient.TestClient = _ThreadlessTestClient
+
+
+@pytest.fixture(autouse=True)
+def _isolate_portfolio_quote_cache(monkeypatch):
+    """Keep the process-wide realtime quote cache out of tests.
+
+    The cache is intentionally process-global in production. In tests it would
+    leak quotes between cases (and hide fetch calls that a test patches and
+    asserts on), and the startup warmup would hit live quote providers during
+    offline runs.
+    """
+    monkeypatch.setenv("PORTFOLIO_QUOTE_WARMUP_ON_STARTUP", "0")
+    from src.services.portfolio_quote_cache import reset_quote_cache
+
+    reset_quote_cache()
+    try:
+        yield
+    finally:
+        reset_quote_cache()
+

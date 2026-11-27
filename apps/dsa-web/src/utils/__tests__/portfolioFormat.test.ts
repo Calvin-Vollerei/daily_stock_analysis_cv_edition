@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assessPositionPrice,
   buildFxRefreshFeedback,
   formatBrokerLabel,
   formatMoney,
@@ -77,5 +78,68 @@ describe('portfolioFormat', () => {
       staleCount: 0,
       errorCount: 0,
     })).toMatchObject({ tone: 'success' });
+  });
+});
+
+describe('assessPositionPrice', () => {
+  const dailyClose = (priceDate: string | null, businessDate = '2026-03-19') => (
+    assessPositionPrice(
+      { ...pricedPosition, priceSource: 'history_close', priceDate, priceStale: true },
+      businessDate,
+    )
+  );
+
+  it('treats a T-1 daily close as normal instead of stale', () => {
+    // 2026-03-19 is a Thursday, so 03-18 is the previous trading day.
+    expect(dailyClose('2026-03-18')).toMatchObject({
+      status: 'daily_close',
+      lagBusinessDays: 1,
+      priceDate: '2026-03-18',
+    });
+  });
+
+  it('does not count weekend days as price lag', () => {
+    // Friday close read on Monday is still the previous trading day.
+    expect(dailyClose('2026-03-13', '2026-03-16')).toMatchObject({
+      status: 'daily_close',
+      lagBusinessDays: 1,
+    });
+  });
+
+  it('only reports stale once two or more trading days are behind', () => {
+    expect(dailyClose('2026-03-17')).toMatchObject({ status: 'stale', lagBusinessDays: 2 });
+  });
+
+  it('trusts the backend stale flag when the price date is unusable', () => {
+    expect(dailyClose(null)).toMatchObject({ status: 'stale', lagBusinessDays: null });
+    expect(assessPositionPrice(
+      { ...pricedPosition, priceSource: 'history_close', priceDate: 'not-a-date', priceStale: false },
+      '2026-03-19',
+    )).toMatchObject({ status: 'daily_close' });
+  });
+
+  it('classifies realtime quotes and missing prices separately', () => {
+    expect(assessPositionPrice(pricedPosition, '2026-03-19')).toMatchObject({ status: 'realtime' });
+    expect(assessPositionPrice(
+      { ...pricedPosition, priceAvailable: false, priceSource: 'missing', lastPrice: 0 },
+      '2026-03-19',
+    )).toMatchObject({ status: 'missing' });
+    // price_available 缺失时按不可用处理，不让 0 价混进「有价」。
+    expect(assessPositionPrice(
+      { ...pricedPosition, priceAvailable: undefined, priceSource: 'history_close', lastPrice: 0 },
+      '2026-03-19',
+    )).toMatchObject({ status: 'missing' });
+  });
+
+  it('labels each state in both languages and shows the as-of date', () => {
+    const stale = { ...pricedPosition, priceSource: 'history_close', priceDate: '2026-03-17', priceAvailable: true };
+    const daily = { ...pricedPosition, priceSource: 'history_close', priceDate: '2026-03-18', priceAvailable: true };
+    expect(getPositionPriceLabel(stale, { businessDate: '2026-03-19' })).toBe('日线收盘 · 2026-03-17 · 未刷新');
+    expect(getPositionPriceLabel(daily, { businessDate: '2026-03-19' })).toBe('日线收盘 · 2026-03-18');
+    expect(getPositionPriceLabel(stale, { language: 'en', businessDate: '2026-03-19' })).toBe('Daily close · 2026-03-17 · Not refreshed');
+    expect(getPositionPriceLabel(daily, { language: 'en', businessDate: '2026-03-19' })).toBe('Daily close · 2026-03-18');
+    expect(getPositionPriceLabel(pricedPosition, { language: 'en' })).toBe('Realtime · longbridge');
+    const missing = { ...pricedPosition, priceAvailable: false, priceSource: 'missing' };
+    expect(getPositionPriceLabel(missing, { language: 'en' })).toBe('No price');
   });
 });

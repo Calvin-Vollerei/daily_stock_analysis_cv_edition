@@ -1,18 +1,20 @@
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Layers3, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Layers3, Search, ShieldCheck, X } from 'lucide-react';
 import { Pie, PieChart, ResponsiveContainer, Tooltip, Legend, Cell } from 'recharts';
 import { decisionSignalsApi } from '../api/decisionSignals';
 import { portfolioApi } from '../api/portfolio';
 import type { ParsedApiError } from '../api/error';
 import { getParsedApiError } from '../api/error';
 import { ApiErrorAlert, Card, Badge, ConfirmDialog, EmptyState, InlineAlert, StatusDot } from '../components/common';
+import { LookThroughCard } from '../components/dashboard/LookThroughCard';
 import { PortfolioSignalSummary } from '../components/decision-signals/DecisionSignalDisplay';
 import { useUiLanguage } from '../contexts/UiLanguageContext';
 import { formatUiText } from '../i18n/uiText';
 import { PORTFOLIO_TEXT } from '../locales/featureText';
 import type { FxRefreshFeedback } from '../utils/portfolioFormat';
 import {
+  assessPositionPrice,
   buildFxRefreshFeedback,
   formatBrokerLabel,
   formatCashDirectionLabel,
@@ -29,6 +31,7 @@ import {
   getPositionPriceLabel,
   getTodayIso,
   hasPositionPrice,
+  isPositionPriceUsable,
 } from '../utils/portfolioFormat';
 import type {
   DecisionSignalItem,
@@ -78,7 +81,71 @@ type EventType = 'trade' | 'cash' | 'corporate';
 type FlatPosition = PortfolioPositionItem & {
   accountId: number;
   accountName: string;
+  /** 所属账户快照的业务日期，用于计算行情落后几个交易日。 */
+  accountAsOf: string | null;
 };
+
+type PositionSortKey =
+  | 'accountName'
+  | 'symbol'
+  | 'quantity'
+  | 'avgCost'
+  | 'lastPrice'
+  | 'marketValueBase'
+  | 'unrealizedPnlBase'
+  | 'unrealizedPnlPct';
+
+type SortDirection = 'asc' | 'desc';
+
+type PositionSortState = {
+  key: PositionSortKey;
+  dir: SortDirection;
+};
+
+/** 持仓明细默认排序：市值降序，保持「打开即见最重要持仓」。 */
+const DEFAULT_POSITION_SORT: PositionSortState = { key: 'marketValueBase', dir: 'desc' };
+
+/** 一次性比较数值/文本，空值统一排最后。 */
+function comparePositionSortValues(
+  left: string | number | null,
+  right: string | number | null,
+  direction: 1 | -1,
+): number {
+  if (left === null && right === null) return 0;
+  if (left === null) return 1;
+  if (right === null) return -1;
+  if (typeof left === 'number' && typeof right === 'number') {
+    return (left - right) * direction;
+  }
+  return String(left).localeCompare(String(right), 'zh-Hans-CN') * direction;
+}
+
+function getPositionSortValue(row: FlatPosition, key: PositionSortKey): string | number | null {
+  switch (key) {
+    case 'accountName':
+      return row.accountName;
+    case 'symbol':
+      return row.symbol;
+    case 'quantity':
+      return Number.isFinite(row.quantity) ? row.quantity : null;
+    case 'avgCost':
+      return Number.isFinite(row.avgCost) ? row.avgCost : null;
+    case 'lastPrice':
+      return hasPositionPrice(row) && Number.isFinite(row.lastPrice) ? row.lastPrice : null;
+    case 'marketValueBase':
+      return Number.isFinite(row.marketValueBase) ? row.marketValueBase : null;
+    case 'unrealizedPnlBase':
+      return hasPositionPrice(row) && Number.isFinite(row.unrealizedPnlBase) ? row.unrealizedPnlBase : null;
+    case 'unrealizedPnlPct':
+      return row.unrealizedPnlPct !== null
+        && row.unrealizedPnlPct !== undefined
+        && Number.isFinite(row.unrealizedPnlPct)
+        ? row.unrealizedPnlPct
+        : null;
+    default:
+      return null;
+  }
+}
 
 type PortfolioSignalLookup = {
   stockCode: string;
@@ -150,7 +217,10 @@ const PORTFOLIO_RISK_DASHBOARD_TEXT = {
     triggered: '触发',
     near: '接近',
     missingPrice: '缺价',
-    stalePrice: '过期价',
+    okPrice: '有价',
+    dailyClosePrice: '日线收盘',
+    stalePrice: '未刷新',
+    priceRefreshHint: '价格未刷新，请点击刷新',
     positions: '持仓',
     snapshotUnavailable: '持仓快照不可用',
     snapshotUnavailableDescription: '无法确认持仓数量或估值，请刷新重试。',
@@ -177,7 +247,10 @@ const PORTFOLIO_RISK_DASHBOARD_TEXT = {
     triggered: 'Triggered',
     near: 'Near',
     missingPrice: 'Missing price',
-    stalePrice: 'Stale price',
+    okPrice: 'Quoted',
+    dailyClosePrice: 'Daily close',
+    stalePrice: 'Not refreshed',
+    priceRefreshHint: 'Prices not refreshed — click Refresh',
     positions: 'Positions',
     snapshotUnavailable: 'Portfolio snapshot unavailable',
     snapshotUnavailableDescription: 'Holdings and valuation are unknown. Refresh to try again.',
@@ -193,6 +266,8 @@ type PortfolioRiskFlag = {
   value: string;
   detail: string;
   tone: PortfolioRiskFlagTone;
+  /** 可选的可操作提示，单独一行展示，避免和 detail 抢同一行的宽度。 */
+  hint?: string;
 };
 
 type PortfolioRiskAvailability = {
@@ -252,10 +327,7 @@ function hasFreshFxEvidence(snapshot: PortfolioSnapshotResponse | null): boolean
 }
 
 function hasUsablePositionQuote(position: PortfolioPositionItem): boolean {
-  return position.priceAvailable === true
-    && hasPositionPrice(position)
-    && Number.isFinite(position.lastPrice)
-    && position.lastPrice > 0;
+  return isPositionPriceUsable(position);
 }
 
 function hasCompletePositionPriceCoverage(snapshot: PortfolioSnapshotResponse | null): boolean {
@@ -455,9 +527,16 @@ function buildPortfolioRiskFlags(
   snapshot: PortfolioSnapshotResponse | null,
   text: RiskDashboardText,
 ): PortfolioRiskFlag[] {
-  const missingPriceCount = positions.filter((position) => !hasUsablePositionQuote(position)).length;
-  const stalePriceCount = positions.filter((position) => hasUsablePositionQuote(position) && position.priceStale).length;
+  // 价格质量三态分开统计：缺价（没行情）/ 日线收盘（T-1，正常）/ 未刷新（真过期）。
+  // 业务日期优先用快照 as_of，避免浏览器时区把 T-1 收盘价误判成过期。
+  const priceAssessments = positions.map((position) => (
+    assessPositionPrice(position, position.accountAsOf ?? snapshot?.asOf ?? null)
+  ));
+  const missingPriceCount = priceAssessments.filter((item) => item.status === 'missing').length;
+  const dailyClosePriceCount = priceAssessments.filter((item) => item.status === 'daily_close').length;
+  const stalePriceCount = priceAssessments.filter((item) => item.status === 'stale').length;
   const priceIssueCount = missingPriceCount + stalePriceCount;
+  const realtimePriceCount = priceAssessments.filter((item) => item.status === 'realtime').length;
   const concentration = risk?.concentration;
   const topPosition = getValidTopPositionRows(risk)[0];
   const sectorConcentration = risk?.sectorConcentration;
@@ -510,11 +589,12 @@ function buildPortfolioRiskFlags(
       label: text.priceQuality,
       value: snapshotAvailable ? String(priceIssueCount) : '--',
       detail: snapshotAvailable
-        ? `${text.missingPrice}: ${missingPriceCount} · ${text.stalePrice}: ${stalePriceCount}`
+        ? `${text.missingPrice}: ${missingPriceCount} · ${text.okPrice}: ${dailyClosePriceCount + realtimePriceCount} · ${text.stalePrice}: ${stalePriceCount}`
         : text.unavailable,
       tone: snapshotAvailable
         ? missingPriceCount > 0 ? 'danger' : stalePriceCount > 0 ? 'warning' : 'success'
         : 'neutral',
+      hint: snapshotAvailable && priceIssueCount > 0 ? text.priceRefreshHint : undefined,
     },
   ];
 }
@@ -542,6 +622,9 @@ const PortfolioRiskFlagCard: React.FC<{
     </div>
     <div className="mt-2 text-lg font-semibold text-foreground">{flag.value}</div>
     <div className="mt-1 truncate text-xs text-secondary">{flag.detail}</div>
+    {flag.hint ? (
+      <div className="mt-1 text-[11px] text-warning">{flag.hint}</div>
+    ) : null}
   </div>
 );
 
@@ -669,6 +752,11 @@ const PortfolioPage: React.FC = () => {
   const [positionAnalysisLoadingKey, setPositionAnalysisLoadingKey] = useState<string | null>(null);
   const [positionAnalysisMessage, setPositionAnalysisMessage] = useState<string | null>(null);
 
+  // 持仓明细表：表头排序、关键字搜索、账户筛选。
+  const [positionSort, setPositionSort] = useState<PositionSortState>(DEFAULT_POSITION_SORT);
+  const [positionSearch, setPositionSearch] = useState('');
+  const [positionAccountFilter, setPositionAccountFilter] = useState<AccountOption>('all');
+
   const [brokers, setBrokers] = useState<PortfolioImportBrokerItem[]>([]);
   const [selectedBroker, setSelectedBroker] = useState('huatai');
   const [csvFile, setCsvFile] = useState<File | null>(null);
@@ -795,7 +883,7 @@ const PortfolioPage: React.FC = () => {
       const snapshotData = await portfolioApi.getSnapshot({
         accountId: queryAccountId,
         costMethod,
-        includeRealtime: false,
+        includeRealtime: true,
       });
       setSnapshot(snapshotData);
       setError(null);
@@ -804,7 +892,7 @@ const PortfolioPage: React.FC = () => {
         const riskData = await portfolioApi.getRisk({
           accountId: queryAccountId,
           costMethod,
-          includeRealtime: false,
+          includeRealtime: true,
         });
         setRisk(riskData);
       } catch (riskErr) {
@@ -925,14 +1013,83 @@ const PortfolioPage: React.FC = () => {
           ...position,
           accountId: account.accountId,
           accountName: account.accountName,
+          accountAsOf: account.asOf ?? null,
         });
       }
     }
     rows.sort((a, b) => Number(b.marketValueBase || 0) - Number(a.marketValueBase || 0));
     return rows;
   }, [snapshot]);
+
+  const positionAccountOptions = useMemo(() => {
+    const accountsById = new Map<number, string>();
+    for (const account of snapshot?.accounts || []) {
+      accountsById.set(account.accountId, account.accountName);
+    }
+    return [...accountsById.entries()].map(([accountId, accountName]) => ({ accountId, accountName }));
+  }, [snapshot]);
+
+  // 搜索 + 账户筛选后的结果；不改动 positionRows 本身，风险汇总等仍用全量行。
+  const filteredPositionRows = useMemo(() => {
+    const keyword = positionSearch.trim().toLowerCase();
+    return positionRows.filter((row) => {
+      if (positionAccountFilter !== 'all' && row.accountId !== positionAccountFilter) {
+        return false;
+      }
+      if (!keyword) {
+        return true;
+      }
+      // 持仓数据只有代码与账户名，没有独立的证券名称字段。
+      return `${row.symbol} ${row.accountName}`.toLowerCase().includes(keyword);
+    });
+  }, [positionRows, positionSearch, positionAccountFilter]);
+
+  const sortedPositionRows = useMemo(() => {
+    const direction = positionSort.dir === 'asc' ? 1 : -1;
+    return [...filteredPositionRows].sort((left, right) => comparePositionSortValues(
+      getPositionSortValue(left, positionSort.key),
+      getPositionSortValue(right, positionSort.key),
+      direction,
+    ));
+  }, [filteredPositionRows, positionSort]);
+
+  // 表头三态：降序 → 升序 → 回到默认市值降序。
+  const handlePositionSort = (key: PositionSortKey) => {
+    setPositionSort((previous) => {
+      if (previous.key !== key) return { key, dir: 'desc' };
+      if (previous.dir === 'desc') return { key, dir: 'asc' };
+      return DEFAULT_POSITION_SORT;
+    });
+  };
+
+  const renderPositionSortIcon = (key: PositionSortKey) => {
+    if (positionSort.key !== key) {
+      return <ArrowUpDown className="h-3 w-3 opacity-40" aria-hidden="true" />;
+    }
+    return positionSort.dir === 'desc'
+      ? <ArrowDown className="h-3 w-3 text-cyan" aria-hidden="true" />
+      : <ArrowUp className="h-3 w-3 text-cyan" aria-hidden="true" />;
+  };
+
+  const getPositionSortAria = (key: PositionSortKey): 'ascending' | 'descending' | 'none' => {
+    if (positionSort.key !== key) return 'none';
+    return positionSort.dir === 'asc' ? 'ascending' : 'descending';
+  };
+
+  const positionColumns: Array<{ key: PositionSortKey; label: string; className: string }> = [
+    { key: 'accountName', label: text.account, className: 'text-left py-2 pr-2' },
+    { key: 'symbol', label: text.code, className: 'text-left py-2 pr-2' },
+    { key: 'quantity', label: text.quantity, className: 'text-right py-2 pr-2' },
+    { key: 'avgCost', label: text.avgCost, className: 'text-right py-2 pr-2' },
+    { key: 'lastPrice', label: text.lastPrice, className: 'text-right py-2 pr-2' },
+    { key: 'marketValueBase', label: text.marketValue, className: 'text-right py-2 pr-2' },
+    { key: 'unrealizedPnlBase', label: text.unrealizedPnl, className: 'text-right py-2 pr-3' },
+    { key: 'unrealizedPnlPct', label: text.returnPct, className: 'text-right py-2 pr-3' },
+  ];
+
   // A missing snapshot is unknown, not a successfully loaded empty portfolio.
   const positionCount = snapshot === null ? '--' : positionRows.length;
+  const filteredPositionCount = snapshot === null ? '--' : filteredPositionRows.length;
   const exposureTotal = snapshot?.totalMarketValue;
   const exposureEmptyLabel = snapshot !== null && positionRows.length === 0 && hasFreshFxEvidence(snapshot)
     ? riskDashboardText.noExposure
@@ -1335,7 +1492,7 @@ const PortfolioPage: React.FC = () => {
       const snapshotData = await portfolioApi.getSnapshot({
         accountId: requestedAccountId,
         costMethod: requestedCostMethod,
-        includeRealtime: false,
+        includeRealtime: true,
       });
       if (!isActiveRefreshContext(requestedViewKey, requestedRequestId)) {
         return false;
@@ -1347,7 +1504,7 @@ const PortfolioPage: React.FC = () => {
         const riskData = await portfolioApi.getRisk({
           accountId: requestedAccountId,
           costMethod: requestedCostMethod,
-          includeRealtime: false,
+          includeRealtime: true,
         });
         if (!isActiveRefreshContext(requestedViewKey, requestedRequestId)) {
           return false;
@@ -1708,11 +1865,59 @@ const PortfolioPage: React.FC = () => {
         </Card>
       </section>
 
-      <section className="grid grid-cols-1 xl:grid-cols-3 gap-3">
-        <Card className="xl:col-span-2" padding="md">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-foreground">{text.positionsTitle}</h2>
-            <span className="text-xs text-secondary">{formatUiText(text.countItems, { count: positionCount })}</span>
+      <section className="grid grid-cols-1 xl:grid-cols-[calc(66.667%_+_50px)_minmax(0,1fr)] gap-3">
+        <Card padding="md">
+          <div className="mb-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-foreground">{text.positionsTitle}</h2>
+              <span className="shrink-0 text-xs text-secondary">
+                {formatUiText(text.filterSummary, { filtered: filteredPositionCount, total: positionCount })}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[11rem] flex-1 sm:max-w-[17rem]">
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-secondary"
+                  aria-hidden="true"
+                />
+                <input
+                  type="text"
+                  value={positionSearch}
+                  onChange={(event) => setPositionSearch(event.target.value)}
+                  placeholder={text.searchPositionsPlaceholder}
+                  aria-label={text.searchPositionsAriaLabel}
+                  className={`${PORTFOLIO_INPUT_CLASS} pl-9 pr-9`}
+                />
+                {positionSearch ? (
+                  <button
+                    type="button"
+                    onClick={() => setPositionSearch('')}
+                    aria-label={text.clearPositionSearch}
+                    className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-secondary transition-colors hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                ) : null}
+              </div>
+              <div className="w-[11rem] shrink-0">
+                <select
+                  value={positionAccountFilter === 'all' ? 'all' : String(positionAccountFilter)}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setPositionAccountFilter(value === 'all' ? 'all' : Number(value));
+                  }}
+                  aria-label={text.filterByAccount}
+                  className={PORTFOLIO_SELECT_CLASS}
+                >
+                  <option value="all">{text.allAccounts}</option>
+                  {positionAccountOptions.map((account) => (
+                    <option key={account.accountId} value={String(account.accountId)}>
+                      {account.accountName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
           {portfolioSignalsWarning ? (
             <InlineAlert
@@ -1739,23 +1944,41 @@ const PortfolioPage: React.FC = () => {
               <table className="min-w-[860px] w-full text-sm">
                 <thead className="text-xs text-secondary border-b border-white/10">
                   <tr>
-                    <th className="text-left py-2 pr-2">{text.account}</th>
-                    <th className="text-left py-2 pr-2">{text.code}</th>
-                    <th className="text-right py-2 pr-2">{text.quantity}</th>
-                    <th className="text-right py-2 pr-2">{text.avgCost}</th>
-                    <th className="text-right py-2 pr-2">{text.lastPrice}</th>
-                    <th className="text-right py-2 pr-2">{text.marketValue}</th>
-                    <th className="text-right py-2 pr-3">{text.unrealizedPnl}</th>
-                    <th className="text-right py-2 pr-3">{text.returnPct}</th>
+                    {positionColumns.map((column) => (
+                      <th
+                        key={column.key}
+                        className={column.className}
+                        aria-sort={getPositionSortAria(column.key)}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handlePositionSort(column.key)}
+                          title={formatUiText(text.sortByColumn, { column: column.label })}
+                          className="inline-flex items-center gap-1 rounded transition-colors hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-cyan/60"
+                        >
+                          {column.label}
+                          {renderPositionSortIcon(column.key)}
+                        </button>
+                      </th>
+                    ))}
                     <th className="min-w-[9rem] text-right py-2 pr-3">{t('decisionSignals.portfolioColumn')}</th>
                     <th className="w-20 text-right py-2">{text.action}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {positionRows.map((row) => {
+                  {sortedPositionRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="py-8 text-center text-xs text-secondary">
+                        {text.noMatchingPositions}
+                      </td>
+                    </tr>
+                  ) : null}
+                  {sortedPositionRows.map((row) => {
                     const rowKey = `${row.accountId}-${row.symbol}-${row.market}`;
                     const analyzing = positionAnalysisLoadingKey === rowKey;
                     const signal = signalByPositionKey.get(rowKey);
+                    const rowBusinessDate = row.accountAsOf ?? snapshot?.asOf ?? null;
+                    const rowPriceStatus = assessPositionPrice(row, rowBusinessDate).status;
                     return (
                     <tr key={rowKey} className="border-b border-white/5">
                       <td className="py-2 pr-2 text-secondary">{row.accountName}</td>
@@ -1764,8 +1987,8 @@ const PortfolioPage: React.FC = () => {
                       <td className="py-2 pr-2 text-right">{row.avgCost.toFixed(4)}</td>
                       <td className="py-2 pr-2 text-right">
                         <div>{formatPositionPrice(row)}</div>
-                        <div className={`text-[11px] ${hasPositionPrice(row) ? 'text-secondary' : 'text-warning'}`}>
-                          {getPositionPriceLabel(row)}
+                        <div className={`text-[11px] ${rowPriceStatus === 'missing' || rowPriceStatus === 'stale' ? 'text-warning' : 'text-secondary'}`}>
+                          {getPositionPriceLabel(row, { language, businessDate: rowBusinessDate })}
                         </div>
                       </td>
                       <td className="py-2 pr-2 text-right">{formatPositionMoney(row.marketValueBase, row)}</td>
@@ -1840,6 +2063,11 @@ const PortfolioPage: React.FC = () => {
             <div>{text.topWeight}: {formatPct(concentrationTopWeight)}</div>
           </div>
         </Card>
+      </section>
+
+      {/* 持仓穿透：ETF / 场外基金 → 理论个股头寸 */}
+      <section className="grid grid-cols-1 gap-3">
+        <LookThroughCard accountId={queryAccountId ?? null} />
       </section>
 
       {writeBlocked && hasAccounts ? (

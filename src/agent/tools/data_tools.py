@@ -177,7 +177,9 @@ def _compact_fundamental_context(fundamental_context: dict) -> dict:
     return compact
 
 
-def _compact_portfolio_snapshot(snapshot: dict, include_positions: bool = False, top_n: int = 5) -> dict:
+def _compact_portfolio_snapshot(
+    snapshot: dict, include_positions: bool = False, top_n: Optional[int] = None
+) -> dict:
     """Shrink portfolio snapshot payload for default tool responses."""
     if not isinstance(snapshot, dict):
         return {}
@@ -207,7 +209,7 @@ def _compact_portfolio_snapshot(snapshot: dict, include_positions: bool = False,
             account_payload["positions"] = positions
         else:
             account_payload["position_count"] = len(positions)
-            account_payload["top_positions"] = positions[:top_n]
+            account_payload["top_positions"] = positions if top_n is None else positions[:top_n]
         compact_accounts.append(account_payload)
 
     return {
@@ -225,7 +227,7 @@ def _compact_portfolio_snapshot(snapshot: dict, include_positions: bool = False,
     }
 
 
-def _compact_portfolio_risk(risk: dict, top_n: int = 10) -> dict:
+def _compact_portfolio_risk(risk: dict, top_n: Optional[int] = None) -> dict:
     """Shrink portfolio risk payload for tool responses."""
     if not isinstance(risk, dict):
         return {}
@@ -235,14 +237,18 @@ def _compact_portfolio_risk(risk: dict, top_n: int = 10) -> dict:
         top_positions,
         key=lambda item: float((item or {}).get("weight_pct") or 0.0),
         reverse=True,
-    )[:top_n]
+    )
+    if top_n is not None:
+        top_positions = top_positions[:top_n]
     stop_loss = risk.get("stop_loss", {}) or {}
     stop_items = list(stop_loss.get("items") or [])
     stop_items = sorted(
         stop_items,
         key=lambda item: float((item or {}).get("loss_pct") or 0.0),
         reverse=True,
-    )[:top_n]
+    )
+    if top_n is not None:
+        stop_items = stop_items[:top_n]
     drawdown = risk.get("drawdown", {}) or {}
     return {
         "as_of": risk.get("as_of"),

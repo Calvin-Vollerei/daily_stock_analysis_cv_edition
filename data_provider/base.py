@@ -3247,6 +3247,10 @@ class DataFetcherManager:
         stock_code = normalize_stock_code(stock_code)
         if _market_tag(stock_code) != "cn":
             return []
+        # Synthetic holdings (GOLD_ICBC, WMP_*) are not exchange securities; probing
+        # providers for their boards only burns anti-scrape budget (~3-4s each).
+        if len(stock_code) != 6 or not stock_code.isdigit():
+            return []
         candidate_fetchers = [
             fetcher
             for fetcher in self._fetchers

@@ -6,8 +6,8 @@ from __future__ import annotations
 import json
 import logging
 import math
+import time
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
@@ -19,6 +19,11 @@ from src.repositories.portfolio_repo import (
     DuplicateTradeUidError,
     PortfolioBusyError as RepoPortfolioBusyError,
     PortfolioRepository,
+)
+from src.services.portfolio_quote_cache import (
+    DEFAULT_WAIT_SECONDS as PORTFOLIO_QUOTE_DEFAULT_WAIT_SECONDS,
+    get_quote_cache,
+    is_realtime_quotable,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,7 +43,6 @@ VALID_SIDES = {"buy", "sell"}
 VALID_CASH_DIRECTIONS = {"in", "out"}
 VALID_CORPORATE_ACTIONS = {"cash_dividend", "split_adjustment"}
 PORTFOLIO_FX_REFRESH_DISABLED_REASON = "portfolio_fx_update_disabled"
-PORTFOLIO_REALTIME_QUOTE_MAX_WORKERS = 4
 
 
 def _portfolio_limitations_for_market(market: str) -> List[str]:
@@ -490,6 +494,9 @@ class PortfolioService:
         """Replay holdings; read-only callers skip live quotes and snapshot writes."""
         as_of_date = as_of or date.today()
         method = self._normalize_cost_method(cost_method)
+        # One bounded wait budget per request: a snapshot spans several accounts,
+        # and each account must not restart the same cold-cache wait.
+        realtime_wait_deadline = time.monotonic() + PORTFOLIO_QUOTE_DEFAULT_WAIT_SECONDS
 
         if account_id is not None:
             account = self._require_active_account(account_id)
@@ -517,6 +524,7 @@ class PortfolioService:
                 as_of_date=as_of_date,
                 cost_method=method,
                 include_realtime=include_realtime and not read_only,
+                realtime_wait_deadline=realtime_wait_deadline,
             )
 
             if not read_only:
@@ -795,6 +803,7 @@ class PortfolioService:
         as_of_date: date,
         cost_method: str,
         include_realtime: bool,
+        realtime_wait_deadline: Optional[float] = None,
     ) -> Dict[str, Any]:
         trades = self.repo.list_trades(account.id, as_of=as_of_date)
         cash_ledger = self.repo.list_cash_ledger(account.id, as_of=as_of_date)
@@ -955,6 +964,7 @@ class PortfolioService:
             fifo_lots=fifo_lots,
             avg_state=avg_state,
             include_realtime=include_realtime,
+            realtime_wait_deadline=realtime_wait_deadline,
         )
         fx_stale = fx_stale or stale_pos
 
@@ -1027,6 +1037,7 @@ class PortfolioService:
         fifo_lots: Dict[Tuple[str, str, str], List[Dict[str, Any]]],
         avg_state: Dict[Tuple[str, str, str], _AvgState],
         include_realtime: bool = True,
+        realtime_wait_deadline: Optional[float] = None,
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float, float, bool]:
         position_rows: List[Dict[str, Any]] = []
         lot_rows: List[Dict[str, Any]] = []
@@ -1055,7 +1066,10 @@ class PortfolioService:
                 if qty > EPS:
                     active_symbols.append(symbol)
         realtime_prices = (
-            self._prefetch_realtime_position_prices(active_symbols)
+            self._prefetch_realtime_position_prices(
+                active_symbols,
+                wait_deadline=realtime_wait_deadline,
+            )
             if active_symbols
             else None
         )
@@ -1200,43 +1214,35 @@ class PortfolioService:
     def _prefetch_realtime_position_prices(
         self,
         symbols: Iterable[str],
+        *,
+        wait_deadline: Optional[float] = None,
     ) -> Dict[str, Tuple[Optional[float], Optional[str]]]:
+        """Return cached realtime quotes and refresh them in the background.
+
+        The snapshot path must stay fast: a live quote chain for bank wealth
+        products that can never be priced used to hold the first request for
+        over a minute. Quotes that are already cached are returned immediately;
+        a cold cache only waits for the shared, bounded budget handed down by
+        the caller (``wait_deadline`` is a ``time.monotonic()`` instant).
+        """
         unique_symbols = sorted({symbol for symbol in symbols if symbol})
         if not unique_symbols:
             return {}
 
-        # Bulk prefetch (when applicable) only warms the fetcher-module-level realtime cache;
-        # the manager itself is discarded so per-symbol workers cannot serialize through its
-        # per-fetcher call locks when individual reads still need a live fetch (e.g. mixed
-        # markets, cache miss, or bulk source returning fewer rows than requested).
-        if len(unique_symbols) >= 5:
-            try:
-                from data_provider.base import DataFetcherManager
+        quotable = [symbol for symbol in unique_symbols if is_realtime_quotable(symbol)]
+        if not quotable:
+            return {}
 
-                DataFetcherManager().prefetch_realtime_quotes(unique_symbols)
-            except Exception as exc:
-                logger.warning("Failed to prefetch realtime portfolio quotes: %s", exc)
+        cache = get_quote_cache()
+        cache.ensure_refresh(quotable, self._fetch_realtime_position_price)
 
-        if len(unique_symbols) == 1:
-            symbol = unique_symbols[0]
-            return {symbol: self._fetch_realtime_position_price(symbol)}
+        if wait_deadline is not None:
+            remaining = wait_deadline - time.monotonic()
+            if remaining > 0:
+                cache.wait_for(quotable, timeout=min(remaining, cache.wait_seconds))
 
-        results: Dict[str, Tuple[Optional[float], Optional[str]]] = {}
-        max_workers = min(PORTFOLIO_REALTIME_QUOTE_MAX_WORKERS, len(unique_symbols))
-        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="portfolio-quote") as executor:
-            futures = {
-                executor.submit(self._fetch_realtime_position_price, symbol): symbol
-                for symbol in unique_symbols
-            }
-            for future in as_completed(futures):
-                symbol = futures[future]
-                try:
-                    results[symbol] = future.result()
-                except Exception as exc:  # pragma: no cover - defensive guard for patched fetchers
-                    logger.warning("Failed to prefetch realtime portfolio price for %s: %s", symbol, exc)
-                    results[symbol] = (None, None)
+        return cache.prices(quotable)
 
-        return results
 
     @staticmethod
     def _fetch_realtime_position_price(symbol: str) -> Tuple[Optional[float], Optional[str]]:
@@ -1264,6 +1270,11 @@ class PortfolioService:
         source = getattr(quote, "source", None)
         provider = getattr(source, "value", None) or (str(source) if source is not None else None)
         return numeric_price, provider
+
+    @classmethod
+    def fetch_realtime_price(cls, symbol: str) -> Tuple[Optional[float], Optional[str]]:
+        """Quote fetcher handed to the quote cache refresher (single code path)."""
+        return cls._fetch_realtime_position_price(symbol)
 
     @staticmethod
     def _normalize_symbol_for_storage(symbol: str) -> str:

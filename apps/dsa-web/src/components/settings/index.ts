@@ -12,5 +12,5 @@ export * from './SettingsCategoryNav';
 export * from './AuthSettingsCard';
 export * from './GenerationBackendStatusPanel';
 export * from './AgentBackendStatusPanel';
-export * from './AppearanceSettingsCard';
+export * from './GeneralSettingsCard';
 export * from './MacroSourceCard';

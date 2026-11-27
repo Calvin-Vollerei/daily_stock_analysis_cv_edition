@@ -16,7 +16,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { UiLanguageProvider, useUiLanguage } from './contexts/UiLanguageContext';
 import { useAgentChatStore } from './stores/agentChatStore';
 import { resolveLoginRedirect } from './utils/loginRedirect';
-import { applyAppearance, readAppearance } from './utils/appearance';
+import { applyUiAppearance, loadUiAppearance } from './utils/uiAppearance';
 import './App.css';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
@@ -39,7 +39,7 @@ const AppContent: React.FC = () => {
   const { t } = useUiLanguage();
 
   useEffect(() => {
-    applyAppearance(readAppearance());
+    applyUiAppearance(loadUiAppearance());
   }, []);
 
   useEffect(() => {

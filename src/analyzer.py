@@ -309,6 +309,33 @@ class _LiteLLMStreamError(RuntimeError):
         self.partial_received = partial_received
 
 
+_STREAM_FALLBACK_BASE_DELAY_SECONDS = 1.0
+_STREAM_FALLBACK_MAX_DELAY_SECONDS = 8.0
+
+
+def _stream_fallback_backoff(attempt_index: int) -> float:
+    """Sleep with capped exponential backoff before a stream->non-stream retry.
+
+    A streaming request that dies mid-flight is usually a transient provider or
+    network fault. Retrying the same model instantly tends to fail again and
+    burns the whole model fallback chain, so wait 1s, 2s, 4s, ... (capped at 8s)
+    to give the provider a chance to recover. Returns the applied delay.
+
+    No delay applies once the surrounding stock execution is cancelled, so a
+    cancelled run never holds its worker for the whole cap.
+    """
+    if is_current_stock_cancelled():
+        return 0.0
+    exponent = max(int(attempt_index), 0)
+    delay = min(
+        _STREAM_FALLBACK_BASE_DELAY_SECONDS * (2 ** exponent),
+        _STREAM_FALLBACK_MAX_DELAY_SECONDS,
+    )
+    if delay > 0:
+        time.sleep(delay)
+    return delay
+
+
 class _AllModelsFailedError(Exception):
     """Raised when every model in the fallback chain fails.
 
@@ -3960,7 +3987,7 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
         last_usage: Dict[str, Any] = {}
         effective_system_prompt = system_prompt or self.TEXT_SYSTEM_PROMPT
         router_model_names = set(get_configured_llm_models(config.llm_model_list))
-        for model in models_to_try:
+        for attempt_index, model in enumerate(models_to_try):
             raise_if_stock_cancelled()
             last_model = model
             origins = route_deployment_origins(config.llm_model_list, model)
@@ -4093,12 +4120,26 @@ Output strictly in the following JSON format. This is a complete Decision Dashbo
                                 safe_error,
                             )
                         last_error = RuntimeError(f"{type(exc).__name__}: {safe_error}")
+                        delay = _stream_fallback_backoff(attempt_index)
+                        logger.info(
+                            "[LiteLLM] %s stream->non-stream backoff %.1fs (model attempt %d)",
+                            model,
+                            delay,
+                            attempt_index + 1,
+                        )
                     except Exception as exc:
                         safe_error = self._sanitize_litellm_exception_text(exc, config=config, model=model)
                         logger.warning(
                             "[LiteLLM] %s stream request failed before first chunk, falling back to non-stream: %s",
                             model,
                             safe_error,
+                        )
+                        delay = _stream_fallback_backoff(attempt_index)
+                        logger.info(
+                            "[LiteLLM] %s stream->non-stream backoff %.1fs (model attempt %d)",
+                            model,
+                            delay,
+                            attempt_index + 1,
                         )
 
                 if _stream_text is not None:

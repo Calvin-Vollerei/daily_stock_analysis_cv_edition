@@ -12,10 +12,10 @@ import { systemConfigApi } from '../api/systemConfig';
 import { ApiErrorAlert, Button, ConfirmDialog, EmptyState } from '../components/common';
 import {
   AgentBackendStatusPanel,
-  AppearanceSettingsCard,
   MacroSourceCard,
   AuthSettingsCard,
   ChangePasswordCard,
+  GeneralSettingsCard,
   GenerationBackendStatusPanel,
   IntelligentImport,
   LLMChannelEditor,
@@ -1765,7 +1765,7 @@ const SettingsPage: React.FC = () => {
                 </div>
               </SettingsSectionCard>
             ) : null}
-            {!trimmedSearchQuery && activeCategory === 'general' ? <AppearanceSettingsCard /> : null}
+            {!trimmedSearchQuery && activeCategory === 'general' ? <GeneralSettingsCard /> : null}
             {!trimmedSearchQuery && activeCategory === 'general' ? <MacroSourceCard /> : null}
             {!trimmedSearchQuery && activeCategory === 'base' ? (
               <SettingsSectionCard

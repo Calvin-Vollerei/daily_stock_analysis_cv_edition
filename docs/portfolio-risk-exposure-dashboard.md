@@ -36,6 +36,34 @@ Web 持仓页新增“风险与暴露看板”，放在组合总览指标和持�
 - 止损计数只有在当前作用域内每个持仓都显式满足 `priceAvailable=true`、`priceSource` 不是 `missing`、`lastPrice` 为有限正数时展示；任一持仓缺价都会让止损旗标和详情降级为“不可用”，避免把占位价 `0` 误报为触发止损。历史收盘价仍属于可用但可能过期的证据，其时效性由独立价格质量旗标披露。
 - 回撤至少需要两个估值观测点且历史估值未使用 stale/fallback FX；零个、单个观测点或 `fxStale=true` 都无法形成可靠比较，统一显示“不可用”。
 
+## 行业口径与可选中间层
+
+`sector_concentration` 的行业分类有两条来源，风险报告的其余部分不受影响：
+
+- **本地口径（默认，零配置可用）**：按持仓 A 股代码查询板块归属（东财板块接口，走数据源限频）。
+  ETF 与场外基金没有交易所板块归属，只能落到 `UNCLASSIFIED`；因此纯 ETF/基金组合的行业集中度会
+  按“覆盖不完整”降级为不可用，个股集中度照常展示。
+  该查询整批并行执行，并受墙钟预算 `PORTFOLIO_RISK_SECTOR_BUDGET_S`（默认 4 秒）约束：预算内没
+  返回的标的一律按未分类处理，**不再阻塞整份风险报告**；空结果与失败进入 5 分钟负缓存，避免每次
+  刷新都重新打一遍限频上游。历史实现是逐个标的串行查询（每个标的约 3.6 秒），一只 18 持仓的组合
+  会耗时 30 秒以上，超过 Web 端 30 秒请求超时，导致整块风险区降级。
+- **行业中间层（可选）**：配置 `PORTFOLIO_SECTOR_LAYER_URL` 后，`GET /api/v1/portfolio/risk` 会先
+  取中间层结果——中间层用基金季报（天天基金 HYPZ）按“行业占净值比 × 持仓权重”重算行业口径，因此
+  ETF / 场外基金 / 理财 / 黄金也能落到真实行业。中间层不可用、超时（`PORTFOLIO_SECTOR_LAYER_TIMEOUT_S`）、
+  或返回结构不符合风险报告契约时**立即回退本地口径**，请求本身不会失败。
+- **防递归**：中间层回源后端时附带 `sector_layer=local`，后端据此跳过中间层一跳。`GET /api/v1/portfolio/risk`
+  新增同名查询参数：`proxy`（默认，优先中间层）与 `local`（强制本地口径，排障用）。
+- **降级可见性**：中间层缺席时，持仓页只在行业区显示“行业数据暂不可用，当前展示个股集中度”，
+  不会出现整块的“风险模块降级”提示；后者只表示风险接口整体不可用。
+- **数据契约（中间层 → 风险接口）**：`_sector_layer.per_fund[symbol] = {as_of, category, coverage_pct}`，
+  `category` 决定 `coverage_pct` 的语义：`lookthrough` 是季报占净值比（可小于 100，如 96.2%），
+  `fixed_income`（纯债/货币，本就没有股票行业可穿透）与 `asset_class`（黄金、银行理财按资产类别归类）
+  的 `coverage_pct` 为 `null`——表示**不适用**，不是缺失数据，更不能写成 `0.0`。
+  `_sector_layer.industry_coverage.complete` 只有在「所有 lookthrough 标的都达到覆盖率阈值、
+  且没有未分类标的」时才为 true；`sector_concentration.coverage.fixed_income_count` 单独统计固收标的，
+  不把它们混进「未分类」。季报只披露了部分股票行业时，剩余部分标为「未穿透」，不伪装成现金。
+  `_sector_layer.position_scope` 只描述持仓范围（`all_positions` / `backend_top_n`），与行业数据完整度无关。
+
 ## 后续扩展
 
 - 按账户、行业、货币和市场增加可切换暴露视图。

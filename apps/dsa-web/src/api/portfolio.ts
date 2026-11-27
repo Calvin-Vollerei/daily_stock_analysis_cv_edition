@@ -16,6 +16,7 @@ import type {
   PortfolioImportBrokerListResponse,
   PortfolioImportCommitResponse,
   PortfolioImportParseResponse,
+  PortfolioLookThroughResponse,
   PortfolioPositionAnalysisRequest,
   PortfolioRiskResponse,
   PortfolioSnapshotResponse,
@@ -153,6 +154,18 @@ export const portfolioApi = {
       params: buildSnapshotParams(query),
     });
     return toCamelCase<PortfolioRiskResponse>(response.data);
+  },
+
+  /**
+   * 持仓穿透（ETF / 场外基金 → 理论个股头寸）。
+   * 该接口来自外部持仓穿透数据服务，开源版后端默认不提供；
+   * 调用方须自行处理 404 / 网络失败并降级展示。
+   */
+  async getLookthrough(accountId?: number): Promise<PortfolioLookThroughResponse> {
+    const response = await apiClient.get<Record<string, unknown>>('/api/v1/portfolio/lookthrough', {
+      params: accountId != null ? { account_id: accountId } : undefined,
+    });
+    return toCamelCase<PortfolioLookThroughResponse>(response.data);
   },
 
   async refreshFx(query: FxRefreshQuery = {}): Promise<PortfolioFxRefreshResponse> {

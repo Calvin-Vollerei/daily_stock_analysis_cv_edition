@@ -896,6 +896,10 @@ function buildBackendEnvironment({
     DESKTOP_BACKEND_DEFAULT_HOST
   );
   const env = {
+    // .env 里的应用配置整份注入子进程环境：后端有一部分配置（如
+    // PORTFOLIO_SECTOR_LAYER_URL / PORTFOLIO_SYNC_COMMAND）依赖进程环境，
+    // 只给 ENV_FILE 时若后端在 dotenv 之前就缓存了配置，这些项会永远读到空值。
+    ...readEnvFileValues(envFile, sourceEnv),
     ...sourceEnv,
     DSA_DESKTOP_MODE: 'true',
     ENV_FILE: envFile,
@@ -1952,6 +1956,38 @@ async function holdSplashAfterPass(splashShownAt) {
   return remainingMs;
 }
 
+// 开屏页自检完成信号：loading.html 的 revealMaxim() 会置 window.__dsaSelfCheckDone = true
+//（进度条 + 格言都已上屏）。主进程轮询它，并给它一个 8 秒上限：
+// 只靠时间会在"后端很慢"时把格言截成半帧，只靠信号又会在页面异常时卡死，
+// 两者叠加才既有下限也有上限。
+const SPLASH_SELF_CHECK_TIMEOUT_MS = 8000;
+const SPLASH_SELF_CHECK_POLL_MS = 120;
+
+async function waitForSplashSelfCheck(win, timeoutMs = SPLASH_SELF_CHECK_TIMEOUT_MS) {
+  const contents = win && win.webContents;
+  if (!contents || typeof contents.executeJavaScript !== 'function') {
+    return false;
+  }
+  if (typeof contents.isDestroyed === 'function' && contents.isDestroyed()) {
+    return false;
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const done = await contents.executeJavaScript('window.__dsaSelfCheckDone === true', true);
+      if (done === true) {
+        return true;
+      }
+    } catch (_error) {
+      // 页面已经切走或 webContents 不可用：不再纠缠，交给时间兜底。
+      return false;
+    }
+    await new Promise((resolve) => setTimeout(resolve, SPLASH_SELF_CHECK_POLL_MS));
+  }
+  return false;
+}
+
 async function createWindow() {
   desktopBackendOrigin = '';
   const restoreResult = isWindowsNsisInstalledApp() ? restorePackagedRuntimeStateFromBackup() : null;
@@ -2148,6 +2184,13 @@ async function createWindow() {
       onHealthProgress
     );
     logStartup(`Backend ready in ${healthInfo.elapsedMs}ms (${healthInfo.attempts} probes)`);
+    // 先等开屏页自己把进度条走完、格言画出来（最多 8 秒），再补齐最短停留。
+    const splashSelfCheckDone = await waitForSplashSelfCheck(mainWindow);
+    if (!splashSelfCheckDone) {
+      logStartup(
+        `Splash self-check signal not observed within ${SPLASH_SELF_CHECK_TIMEOUT_MS}ms; using time-based hold only`
+      );
+    }
     // 后端就绪后，开屏页仍需停留（默认 3600ms，与 loading.html 的 HOLD_AFTER_PASS_MS 一致）。
     const splashHoldMs = await holdSplashAfterPass(splashShownAt);
     if (splashHoldMs > 0) {
@@ -2268,5 +2311,6 @@ module.exports = {
       ? numericHoldMs
       : SPLASH_HOLD_AFTER_PASS_MS;
   },
+  waitForSplashSelfCheck,
   waitForBackendExit,
 };

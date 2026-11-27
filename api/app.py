@@ -220,6 +220,66 @@ def _schedule_stock_index_background_refresh(app: FastAPI, reason: str) -> None:
     )
 
 
+PORTFOLIO_WARMUP_ENV = "PORTFOLIO_QUOTE_WARMUP_ON_STARTUP"
+PORTFOLIO_WARMUP_DELAY_ENV = "PORTFOLIO_QUOTE_WARMUP_DELAY_SECONDS"
+_PORTFOLIO_WARMUP_DELAY_DEFAULT = 2.0
+
+
+def _portfolio_warmup_enabled() -> bool:
+    raw = (os.getenv(PORTFOLIO_WARMUP_ENV) or "").strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return True
+
+
+def _portfolio_warmup_delay() -> float:
+    raw = (os.getenv(PORTFOLIO_WARMUP_DELAY_ENV) or "").strip()
+    if not raw:
+        return _PORTFOLIO_WARMUP_DELAY_DEFAULT
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        logger.warning("Invalid %s=%r; using default", PORTFOLIO_WARMUP_DELAY_ENV, raw)
+        return _PORTFOLIO_WARMUP_DELAY_DEFAULT
+
+
+def _schedule_portfolio_open_refresh() -> None:
+    """Refresh holdings prices right after startup.
+
+    Restores "opening the app refreshes my holdings": exchange-traded symbols are
+    warmed into the realtime quote cache, and an optional account-sync command
+    (bank wealth products / gold / OTC fund NAVs) is started when configured.
+    Both run in daemon threads and never block or fail the startup path.
+    """
+    if not _portfolio_warmup_enabled():
+        logger.info("[portfolio quotes] startup warmup disabled by %s", PORTFOLIO_WARMUP_ENV)
+        return
+
+    import threading
+    import time as _time
+
+    delay = _portfolio_warmup_delay()
+
+    def _warm_quotes() -> None:
+        if delay > 0:
+            _time.sleep(delay)
+        try:
+            from src.services.portfolio_quote_cache import warmup_portfolio_quotes
+
+            warmup_portfolio_quotes()
+        except Exception as exc:  # noqa: BLE001 - warmup must stay best effort
+            logger.warning("[portfolio quotes] startup warmup failed: %s", exc)
+
+    threading.Thread(target=_warm_quotes, name="portfolio-quote-warmup", daemon=True).start()
+
+    try:
+        from src.services.portfolio_sync_command import schedule_portfolio_sync
+
+        schedule_portfolio_sync()
+    except Exception as exc:  # noqa: BLE001 - external sync is optional
+        logger.warning("[portfolio sync] startup scheduling failed: %s", exc)
+
+
 def _load_runtime_scheduler_args() -> dict:
     raw_value = os.getenv(RUNTIME_SCHEDULER_ARGS_ENV)
     if not raw_value:
@@ -290,6 +350,7 @@ async def app_lifespan(app: FastAPI):
         runtime_scheduler=app.state.runtime_scheduler_service,
     )
     _schedule_stock_index_background_refresh(app, "startup")
+    _schedule_portfolio_open_refresh()
     # 名称解析器的 AkShare 缓存预热：命中磁盘缓存则零网络加载，否则发起
     # 后台单飞拉取。把冷启动等待从首个用户请求挪到进程启动窗口。
     from src.services.name_to_code_resolver import warmup_akshare_cache

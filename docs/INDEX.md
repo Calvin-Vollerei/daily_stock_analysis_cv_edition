@@ -71,6 +71,7 @@
 | [云端 WebUI 部署](deploy-webui-cloud.md) | 云服务器访问 WebUI 的部署说明 |
 | [Zeabur 部署](docker/zeabur-deployment.md) | Zeabur 平台部署说明 |
 | [桌面端打包说明](desktop-package.md) | Electron 桌面端和 Web 构建产物打包说明 |
+| [桌面端 Sidecar 脚本](desktop-sidecars.md) | 无实时行情品种（银行理财、黄金、场外基金等）的同步机制、脚本契约与打包位置 |
 
 ## 参考与开发
 

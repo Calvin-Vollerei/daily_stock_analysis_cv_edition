@@ -347,13 +347,14 @@ class PortfolioServiceTestCase(unittest.TestCase):
         self.assertTrue(all(position["price_source"] == "realtime_quote" for position in positions))
         self.assertTrue(all(position["price_provider"] == "unit-test" for position in positions))
 
-    def test_current_snapshot_does_not_serialize_when_bulk_prefetch_cache_misses(self) -> None:
-        """Bulk-prefetch path must not share a fetcher manager across workers.
+    def test_current_snapshot_refreshes_quotes_in_parallel_without_bulk_pull(self) -> None:
+        """Cold quote cache must fill through parallel per-symbol fetches.
 
-        Reproduces the #1803 regression where ``prefetch_realtime_quotes`` reports a
-        full-count result but per-symbol ``get_realtime_quote`` still issues a live
-        fetch (mixed markets / cache miss). Each worker must create its own manager
-        so manager-owned per-fetcher locks do not re-serialize the requests.
+        The bulk ``prefetch_realtime_quotes`` call used to run on the request
+        path; it pulled a whole-market snapshot before any price could be
+        returned. Refresh now happens per symbol in a worker pool, each worker
+        with its own manager so manager-owned per-fetcher locks do not
+        re-serialize the requests (regression #1803).
         """
 
         today = date.today()
@@ -387,8 +388,6 @@ class PortfolioServiceTestCase(unittest.TestCase):
 
             def prefetch_realtime_quotes(self, stock_codes: list) -> int:
                 prefetch_calls.append(list(stock_codes))
-                # Report a full-count bulk prefetch, simulating the optimistic
-                # "cache fully filled" signal the previous implementation trusted.
                 return len(stock_codes)
 
             def get_realtime_quote(self, symbol: str, log_final_failure: bool = True) -> SimpleNamespace:
@@ -409,13 +408,10 @@ class PortfolioServiceTestCase(unittest.TestCase):
 
         positions = snapshot["accounts"][0]["positions"]
         self.assertEqual(len(positions), len(symbols))
-        # Bulk prefetch path must still be exercised for large batches.
-        self.assertEqual(len(prefetch_calls), 1)
-        self.assertEqual(len(prefetch_calls[0]), len(symbols))
-        # One manager warmed the cache; each per-symbol worker created its own.
-        self.assertGreaterEqual(len(manager_instances), len(symbols) + 1)
-        # Per-worker independent managers must allow real concurrency even when
-        # the bulk prefetch claims a full cache fill.
+        # The request path must never trigger a whole-market bulk pull again.
+        self.assertEqual(prefetch_calls, [])
+        # One manager per worker keeps the per-fetcher locks independent.
+        self.assertGreaterEqual(len(manager_instances), len(symbols))
         self.assertGreaterEqual(fetch_state["max_active"], 2)
         self.assertTrue(all(position["price_source"] == "realtime_quote" for position in positions))
         self.assertTrue(all(position["price_provider"] == "unit-test" for position in positions))
