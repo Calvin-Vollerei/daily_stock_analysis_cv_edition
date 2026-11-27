@@ -15,6 +15,7 @@ import { historyApi } from '../api/history';
 import { agentApi, type SkillInfo } from '../api/agent';
 import { systemConfigApi } from '../api/systemConfig';
 import { ApiErrorAlert, Button, Drawer, EmptyState, InlineAlert } from '../components/common';
+import { CharacterSticker } from '../components/common/CharacterSticker';
 import { DashboardStateBlock } from '../components/dashboard';
 import { StockAutocomplete } from '../components/StockAutocomplete';
 import { StockHistoryTrendDrawer } from '../components/history';
@@ -2011,6 +2012,7 @@ const HomePage: React.FC = () => {
           title={t('runFlow.drawerTitle')}
           width="max-w-[96vw]"
           zIndex={80}
+          headerExtra={<CharacterSticker testId="run-flow-character-faces" className="max-h-[96px] w-auto" />}
         >
           <RunFlowPanel
             key={`${runFlowDrawer.source.type}-${runFlowDrawer.source.type === 'task' ? runFlowDrawer.source.taskId : runFlowDrawer.source.recordId}`}

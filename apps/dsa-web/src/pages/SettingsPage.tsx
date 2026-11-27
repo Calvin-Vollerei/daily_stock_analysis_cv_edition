@@ -28,6 +28,8 @@ import {
   SettingsPanelErrorBoundary,
   SettingsSectionCard,
 } from '../components/settings';
+// 角色立绘卡片只在「关于」页渲染，保持直连引用，不往 components/settings/index.ts 里加导出。
+import { CharacterArtCard } from '../components/settings/CharacterArtCard';
 import { WEB_BUILD_INFO } from '../utils/constants';
 import { parseStockListValue } from '../utils/stockList';
 import { getCategoryDescription, getCategoryTitle, getFieldDescriptionZh, getFieldTitleZh } from '../utils/systemConfigI18n';
@@ -1795,6 +1797,7 @@ const SettingsPage: React.FC = () => {
               </SettingsSectionCard>
             ) : null}
             {!trimmedSearchQuery && activeCategory === 'about' ? <AboutSettingsCard /> : null}
+            {!trimmedSearchQuery && activeCategory === 'about' ? <CharacterArtCard /> : null}
             {!trimmedSearchQuery && activeCategory === 'general' ? <GeneralSettingsCard /> : null}
             {!trimmedSearchQuery && activeCategory === 'general' ? <MacroSourceCard /> : null}
             {!trimmedSearchQuery && activeCategory === 'base' ? (

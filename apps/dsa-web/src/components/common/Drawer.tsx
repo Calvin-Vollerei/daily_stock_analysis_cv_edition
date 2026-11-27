@@ -14,6 +14,11 @@ interface DrawerProps {
   zIndex?: number;
   side?: 'left' | 'right';
   backdropClassName?: string;
+  /**
+   * 标题行右侧的附加内容，渲染在标题与关闭按钮之间（关闭按钮左边）。
+   * 不传时标题行结构与样式与原来完全一致，其它抽屉不受影响。
+   */
+  headerExtra?: React.ReactNode;
 }
 
 /**
@@ -28,6 +33,7 @@ export const Drawer: React.FC<DrawerProps> = ({
   zIndex = 50,
   side = 'right',
   backdropClassName,
+  headerExtra,
 }) => {
   const { t } = useUiLanguage();
   // Close the drawer when Escape is pressed.
@@ -63,6 +69,18 @@ export const Drawer: React.FC<DrawerProps> = ({
   const titleId = title ? `drawer-title-${side}` : undefined;
   const sidePositionClass = side === 'left' ? 'left-0 justify-start' : 'right-0 justify-end';
   const borderClass = side === 'left' ? 'border-r' : 'border-l';
+  const closeButton = (
+    <button
+      type="button"
+      onClick={onClose}
+      className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-card/80 text-secondary-text transition-colors hover:bg-hover hover:text-foreground"
+      aria-label={t('common.closeDrawer')}
+    >
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </button>
+  );
 
   return (
     <div className="fixed inset-0 overflow-hidden" style={{ zIndex }} role="presentation">
@@ -87,23 +105,26 @@ export const Drawer: React.FC<DrawerProps> = ({
             side === 'left' ? 'animate-slide-in-left' : 'animate-slide-in-right'
           )}
         >
-          <div className="flex items-center justify-between border-b border-border/60 px-6 py-4">
+          <div
+            className={cn(
+              'flex items-center justify-between border-b border-border/60 px-6 py-4',
+              headerExtra ? 'gap-4' : undefined,
+            )}
+          >
             {title ? (
               <div>
                 <span className="label-uppercase">DETAIL VIEW</span>
                 <h2 id={titleId} className="mt-1 text-lg font-semibold text-foreground">{title}</h2>
               </div>
             ) : <div />}
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/70 bg-card/80 text-secondary-text transition-colors hover:bg-hover hover:text-foreground"
-              aria-label={t('common.closeDrawer')}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            {headerExtra ? (
+              // 有附加内容时把「附加内容 + 关闭按钮」收成右侧一组，
+              // 保证附加内容在关闭按钮左边且不会被标题挤压。
+              <div className="ml-auto flex shrink-0 items-center gap-3">
+                {headerExtra}
+                {closeButton}
+              </div>
+            ) : closeButton}
           </div>
           <div className="flex-1 overflow-y-auto p-6">
             {children}

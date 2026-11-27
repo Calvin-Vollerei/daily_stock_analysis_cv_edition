@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -114,3 +116,63 @@ def test_update_check_reports_network_failure(monkeypatch: pytest.MonkeyPatch) -
 
     assert body["error"] == "network"
     assert body["update_available"] is False
+
+
+# ------------------------- 角色主题（开机页立绘） -------------------------
+
+
+def _ui_theme_file(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    target = tmp_path / "data" / "ui-theme.json"
+    monkeypatch.setenv(system_about.UI_THEME_FILE_ENV, str(target))
+    return target
+
+
+def test_post_ui_theme_writes_character(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = _ui_theme_file(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.post("/api/v1/system/ui-theme", json={"character": "takakou"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["character"] == "takakou"
+    assert json.loads(target.read_text(encoding="utf-8")) == {"character": "takakou"}
+
+
+def test_post_ui_theme_null_clears_character(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = _ui_theme_file(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+    client.post("/api/v1/system/ui-theme", json={"character": "mochiko"})
+
+    response = client.post("/api/v1/system/ui-theme", json={"character": None})
+
+    assert response.status_code == 200
+    assert response.json()["character"] is None
+    assert json.loads(target.read_text(encoding="utf-8")) == {"character": None}
+
+
+def test_post_ui_theme_normalizes_character_case(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = _ui_theme_file(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.post("/api/v1/system/ui-theme", json={"character": "  Kurumi "})
+
+    assert response.status_code == 200
+    assert json.loads(target.read_text(encoding="utf-8")) == {"character": "kurumi"}
+
+
+def test_post_ui_theme_rejects_unknown_character(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = _ui_theme_file(tmp_path, monkeypatch)
+    client = TestClient(create_app())
+
+    response = client.post("/api/v1/system/ui-theme", json={"character": "not-a-character"})
+
+    assert response.status_code == 400
+    assert not target.exists()
+
+
+def test_ui_theme_file_defaults_to_cwd(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.delenv(system_about.UI_THEME_FILE_ENV, raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    assert system_about.ui_theme_file_path() == tmp_path / "ui-theme.json"

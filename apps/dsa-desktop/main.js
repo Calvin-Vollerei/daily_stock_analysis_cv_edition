@@ -50,6 +50,14 @@ const DESKTOP_UPDATE_CHECK_ENABLED = process.env.DSA_DESKTOP_UPDATE_CHECK === '1
 const SPLASH_HOLD_AFTER_PASS_MS = 3600;
 // 测试用可调项：单测里的假窗口没有真实渲染，不需要等满 3.6 秒。
 let splashHoldAfterPassMs = SPLASH_HOLD_AFTER_PASS_MS;
+// 开屏页右侧的角色立绘：网页侧（「通用设置 → 角色主题」）把选择写到
+// <data 目录>/ui-theme.json，主进程在 loadFile 之前读它，再用 ?character=<id>
+// 传给 loading.html。开屏页是 file:// 源，读不到 http 页面的 localStorage，
+// 所以角色只能由主进程这样转达一次。
+const UI_THEME_FILE_NAME = 'ui-theme.json';
+// 与 apps/dsa-web/src/themes/characterThemes.ts 的 CHARACTER_THEME_IDS 保持一致；
+// 这里只用来校验，不认识的值一律退回单栏（不留破图）。
+const CHARACTER_THEME_IDS = Object.freeze(['takakou', 'mebuki', 'mochiko', 'kurumi']);
 const DESKTOP_UPDATE_BACKUP_DIR = '.dsa-desktop-update-backup';
 const DESKTOP_UPDATE_BACKUP_MANIFEST_FILE = 'runtime-state.json';
 const DESKTOP_BACKEND_DEFAULT_HOST = '127.0.0.1';
@@ -73,6 +81,8 @@ const DESKTOP_BACKEND_PATH_DELIMITER = isWindows ? ';' : ':';
 const DESKTOP_UPDATE_RUNTIME_RELATIVE_FILES = Object.freeze([
   '.env',
   path.join('data', 'stock_analysis.db'),
+  // 角色主题选择：更新安装后开屏页仍能显示用户选过的立绘。
+  path.join('data', UI_THEME_FILE_NAME),
   path.join('data', 'stock_analysis.db-wal'),
   path.join('data', 'stock_analysis.db-shm'),
   path.join('data', 'screening', 'hotspots.json'),
@@ -920,11 +930,60 @@ function buildBackendEnvironment({
     env.WEBUI_PORT = String(selectedPort);
   }
 
+  if (dbPath) {
+    // 角色主题持久化文件：后端 POST /api/v1/system/ui-theme 就写这个路径。
+    // 与数据库同目录（<安装目录>/data），装机时由主进程注入，
+    // 后端不必再猜自己的 cwd（打包后 cwd 与安装目录并不一致）。
+    env.DSA_UI_THEME_FILE = path.join(path.dirname(dbPath), UI_THEME_FILE_NAME);
+  }
+
   if (isMac) {
     env.PATH = extendMacDesktopBackendPath(sourceEnv.PATH);
   }
 
   return env;
+}
+
+function resolveUiThemeFilePath(appDir = resolveAppDir()) {
+  return path.join(appDir, 'data', UI_THEME_FILE_NAME);
+}
+
+function normalizeCharacterThemeId(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const id = value.trim().toLowerCase();
+  return CHARACTER_THEME_IDS.includes(id) ? id : null;
+}
+
+/**
+ * 读网页侧写入的角色主题；文件缺失、JSON 坏掉、值不认识都返回 null。
+ * 开屏页拿不到角色就会退回原来的居中单栏，所以这里绝不能抛。
+ */
+function readUiThemeCharacter(themeFile = resolveUiThemeFilePath()) {
+  try {
+    if (!fs.existsSync(themeFile)) {
+      return null;
+    }
+    const parsed = JSON.parse(fs.readFileSync(themeFile, 'utf-8'));
+    return normalizeCharacterThemeId(parsed && parsed.character);
+  } catch (_error) {
+    return null;
+  }
+}
+
+/** 开屏页的 query：dsaPort 供自检探活，character 供右侧立绘。 */
+function buildSplashSearch({ port = null, character = null } = {}) {
+  const params = new URLSearchParams();
+  if (Number.isInteger(port) && port >= 1 && port <= 65535) {
+    params.set('dsaPort', String(port));
+  }
+  const themeId = normalizeCharacterThemeId(character);
+  if (themeId) {
+    params.set('character', themeId);
+  }
+  const search = params.toString();
+  return search ? `?${search}` : '';
 }
 
 function sleep(ms) {
@@ -2049,6 +2108,10 @@ async function createWindow() {
   desktopBackendOrigin = new URL(buildBackendUrl(backendConnectHost, port)).origin;
   logStartup(`App directory=${appDir}`);
 
+  // 开机页右侧立绘：读网页侧写入的角色主题（文件缺失/值非法都退回居中单栏）。
+  const uiThemeCharacter = readUiThemeCharacter(resolveUiThemeFilePath(appDir));
+  logStartup(`Splash character theme=${uiThemeCharacter || 'none'}`);
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -2066,8 +2129,11 @@ async function createWindow() {
 
   const loadingPath = path.join(__dirname, 'renderer', 'loading.html');
   const loadingPageStartedAt = Date.now();
-  // 把真实端口透给开屏页，让它的自检打到正确的后端。
-  await mainWindow.loadFile(loadingPath, { search: `?dsaPort=${port}` });
+  // 把真实端口透给开屏页，让它的自检打到正确的后端；
+  // 同时把当前角色主题透给它，右侧画对应立绘（未选角色时只有 dsaPort）。
+  await mainWindow.loadFile(loadingPath, {
+    search: buildSplashSearch({ port, character: uiThemeCharacter }),
+  });
   const splashShownAt = Date.now();
   logStartup(`Loading page rendered in ${splashShownAt - loadingPageStartedAt}ms`);
 
@@ -2117,7 +2183,10 @@ async function createWindow() {
     logStartup('Waiting for backend health check');
   } catch (error) {
     logStartup(`Backend launch failed: ${String(error)}`);
-    const errorUrl = `file://${loadingPath}?error=${encodeURIComponent(String(error))}`;
+    // 失败页也带上角色，开屏页仍按左右分栏显示（拿不到就退回单栏）。
+    const errorUrl =
+      `file://${loadingPath}?error=${encodeURIComponent(String(error))}` +
+      (uiThemeCharacter ? `&character=${uiThemeCharacter}` : '');
     await mainWindow.loadURL(errorUrl);
     return;
   }
@@ -2208,7 +2277,10 @@ async function createWindow() {
     }
   } catch (error) {
     logStartup(`Startup failed while waiting for health: ${String(error)}`);
-    const errorUrl = `file://${loadingPath}?error=${encodeURIComponent(String(error))}`;
+    // 失败页也带上角色，开屏页仍按左右分栏显示（拿不到就退回单栏）。
+    const errorUrl =
+      `file://${loadingPath}?error=${encodeURIComponent(String(error))}` +
+      (uiThemeCharacter ? `&character=${uiThemeCharacter}` : '');
     await mainWindow.loadURL(errorUrl);
   }
 }
@@ -2269,6 +2341,12 @@ module.exports = {
   LATEST_RELEASE_API_URL,
   RELEASES_PAGE_URL,
   DESKTOP_UPDATE_RUNTIME_RELATIVE_FILES,
+  CHARACTER_THEME_IDS,
+  UI_THEME_FILE_NAME,
+  buildSplashSearch,
+  normalizeCharacterThemeId,
+  readUiThemeCharacter,
+  resolveUiThemeFilePath,
   UPDATE_MODE,
   UPDATE_STATUS,
   buildUpdateState,

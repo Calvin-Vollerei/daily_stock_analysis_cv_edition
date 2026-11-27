@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 > Release notes are generated from merged PRs and archived here by version. For the published notes, see [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases).
 
+## [3.35.0-cv-edition-patch3] - 2026-11-27
+
+- [新功能] 四套角色主题：高更康子、山师芽吹、小金萌智子、福贺久留美。每套取自角色立绘的特征色，按钮、链接、焦点环、选中态、侧栏、标签页与图表主色全部跟随，亮色与暗色各一套配色。
+- [新功能] 「通用设置」新增角色主题切换（默认 + 四个角色），点击即时生效并记住选择。
+- [新功能] 角色立绘显示在「设置 → 关于」下方，透明无边框，未选角色或图片缺失时不显示。
+- [新功能] 表情包显示在首页「市场情绪」下方与运行流抽屉标题行右侧，跟随当前角色。
+- [新功能] 开屏页改为左右两栏：左侧环境自检与进度，右侧角色立绘；未选角色时回到居中单栏。
+- [新功能] `/api/v1/system/ui-theme` 把当前角色写入 `data/ui-theme.json`，桌面端启动时读取并传给开屏页。
+- [新功能] 持仓页打开即用上一次的刷新结果渲染，后台刷新后再替换；加载期间提示数据时间。
+- [新功能] 数据源新增「同花顺账本精灵」接入配置（7 项），默认关闭。
+- [新功能] `/api/v1/portfolio/snapshot` 支持 `force_refresh`，页面「刷新数据」会真正重取行情。
+- [修复] 通用设置与关于不再多渲染「当前分类下暂无配置项」空态卡片。
+
 ## [3.35.0-cv-edition-patch2] - 2026-11-27
 
 CV Edition 维护版：把「能录入什么」写进界面，并让外部 AI 助手一键接管持仓导入。

@@ -37,6 +37,11 @@
   --popover-foreground: 228 35% 12%;
   --primary: 193 100% 43%;
   --primary-foreground: 216 33% 97%;
+  /* 主色深浅变体：渐变/悬浮用，角色主题下由 --character-primary-* 接管 */
+  --primary-deep: 191 100% 40%;
+  --primary-soft: 190 100% 92%;
+  /* .btn-primary 的文字色：默认走深墨色（青底上可读），角色主题下换成色板的前景色 */
+  --btn-primary-text: #041118;
   --secondary: 214 32% 91%;
   --secondary-foreground: 228 35% 16%;
   --muted: 214 30% 94%;
@@ -316,6 +321,9 @@
   --popover-foreground: 210 33% 98%;
   --primary: 190 100% 50%;
   --primary-foreground: 228 35% 8%;
+  --primary-deep: 191 100% 36%;
+  --primary-soft: 195 60% 18%;
+  --btn-primary-text: #041118;
   --secondary: 231 19% 15%;
   --secondary-foreground: 210 33% 94%;
   --muted: 230 18% 14%;
@@ -571,6 +579,165 @@
 }
 
 /* =========================================
+   1.1 CHARACTER THEME → GLOBAL HIGHLIGHT TOKENS
+   =========================================
+   角色色板由 src/themes/useCharacterTheme.tsx 写成 `--character-*` CSS 变量
+   （它自己按当前明暗挑 light / dark 两套色板），这里只做「角色变量 → 语义令牌」
+   的映射，不写死任何具体色值，组件侧无需感知主题。
+
+   为什么能盖住上面的 `.dark` 块：`html[data-character]` = 元素 + 属性，特异性
+   高于单个 `.dark` 类。暗色下需要的差异（透明度、渐变端点等）在下面
+   `html[data-character].dark` 里再覆盖一次。
+
+   未选角色主题时 `data-character` 不存在，这两块整体不生效，默认配色不变。
+   ----------------------------------------- */
+
+/* ---- 亮色下的角色主题映射 ---- */
+html[data-character] {
+  /* 主色：按钮 / 链接 / 焦点环 / 图表主色 / 侧栏选中指示条 */
+  --primary: var(--character-primary);
+  --primary-foreground: var(--character-primary-foreground);
+  --primary-deep: var(--character-primary-deep);
+  --primary-soft: var(--character-primary-soft);
+  --ring: var(--character-primary);
+  --btn-primary-text: hsl(var(--character-primary-foreground));
+  --border-cyan: hsl(var(--character-primary));
+  --border-accent: hsl(var(--character-primary) / 0.7);
+  --border-hover: hsl(var(--character-primary) / 0.24);
+  --border-selected: hsl(var(--character-primary) / 0.32);
+
+  /* 选中态 / 悬浮底色 / 二级按钮：低饱和 tint + 前景色 */
+  --secondary: var(--character-tint);
+  --secondary-foreground: var(--foreground);
+  --accent: var(--character-tint);
+  --accent-foreground: var(--foreground);
+  --overlay-selected: hsl(var(--character-primary) / 0.1);
+  --input-surface-border-focus: hsl(var(--character-primary) / 0.38);
+  --input-surface-focus-ring: 0 0 0 4px hsl(var(--character-primary) / 0.15);
+
+  /* 历史别名：.text-cyan / .text-primary / .gauge-ring / .badge-cyan 都吃这几个 */
+  --color-cyan: hsl(var(--character-primary));
+  --color-cyan-dim: hsl(var(--character-primary) / 0.8);
+  --color-cyan-glow: hsl(var(--character-primary) / 0.18);
+  --gradient-primary:
+    linear-gradient(135deg, hsl(var(--character-primary)), hsl(var(--character-primary-deep)));
+
+  /* 外壳 / 设置页 / 首页里原本写死青色的强调色 */
+  --shell-sidebar-border: hsl(var(--character-primary) / 0.35);
+  --autocomplete-hover-bg: hsl(var(--character-primary));
+  --settings-accent-shadow: hsl(var(--character-primary) / 0.08);
+  --settings-primary-border: hsl(var(--character-primary) / 0.26);
+  --settings-primary-gradient:
+    linear-gradient(135deg, hsl(var(--character-primary)), hsl(var(--character-primary-deep)));
+  --settings-primary-text: hsl(var(--character-primary-foreground));
+  --settings-primary-shadow: hsl(var(--character-primary) / 0.2);
+  --settings-primary-shadow-hover: hsl(var(--character-primary) / 0.22);
+  --settings-secondary-border-hover: hsl(var(--character-primary) / 0.38);
+  --settings-secondary-bg-hover: hsl(var(--character-primary) / 0.12);
+  --settings-glow-hover: hsl(var(--character-primary) / 0.38);
+  --home-panel-border-hover: hsl(var(--character-primary) / 0.2);
+  --home-panel-border-selected: hsl(var(--character-primary) / 0.34);
+  --home-panel-gradient-start: hsl(var(--character-primary) / 0.1);
+  --home-panel-selected-shadow:
+    0 0 0 1px hsl(var(--character-primary) / 0.08),
+    0 10px 24px hsl(220 24% 36% / 0.1);
+  --home-history-item-selected-bg:
+    linear-gradient(180deg, hsl(var(--character-primary) / 0.08), hsl(214 42% 96% / 0.98));
+  --home-surface-button-border-hover: hsl(var(--character-primary) / 0.22);
+  --home-hero-border: hsl(var(--character-primary) / 0.32);
+  --home-hero-gradient-start: hsl(var(--character-primary) / 0.24);
+  --home-history-glow: hsl(var(--character-primary) / 0.14);
+  --login-brand-button-start: hsl(var(--character-primary));
+  --login-brand-button-end: hsl(var(--character-primary-deep));
+  --login-brand-button-start-hover: hsl(var(--character-primary-soft));
+  --login-brand-button-end-hover: hsl(var(--character-primary));
+  --chat-avatar-user-bg: hsl(var(--character-primary) / 0.5);
+  --chat-avatar-user-border: hsl(var(--character-primary) / 0.3);
+  --chat-avatar-ai-bg: hsl(var(--character-primary) / 0.1);
+  --chat-avatar-ai-border: hsl(var(--character-primary) / 0.2);
+  --chat-bubble-user-bg: hsl(var(--character-primary) / 0.1);
+  --chat-bubble-user-border: hsl(var(--character-primary) / 0.2);
+}
+
+/* ---- 暗色下的角色主题映射（透明度按暗底调高） ---- */
+html[data-character].dark {
+  --primary: var(--character-primary);
+  --primary-foreground: var(--character-primary-foreground);
+  --primary-deep: var(--character-primary-deep);
+  --primary-soft: var(--character-primary-soft);
+  --ring: var(--character-primary);
+  --btn-primary-text: hsl(var(--character-primary-foreground));
+  --border-cyan: hsl(var(--character-primary));
+  --border-accent: hsl(var(--character-primary) / 0.8);
+  --border-hover: hsl(var(--character-primary) / 0.34);
+  --border-selected: hsl(var(--character-primary) / 0.46);
+
+  --secondary: var(--character-tint);
+  --secondary-foreground: var(--foreground);
+  --accent: var(--character-tint);
+  --accent-foreground: var(--foreground);
+  --overlay-selected: hsl(var(--character-primary) / 0.15);
+  --input-surface-border-focus: hsl(var(--character-primary) / 0.45);
+  --input-surface-focus-ring: 0 0 0 4px hsl(var(--character-primary) / 0.18);
+
+  --color-cyan: hsl(var(--character-primary));
+  --color-cyan-dim: hsl(var(--character-primary) / 0.8);
+  --color-cyan-glow: hsl(var(--character-primary) / 0.4);
+  --gradient-primary:
+    linear-gradient(135deg, hsl(var(--character-primary)), hsl(var(--character-primary-deep)));
+
+  --shell-sidebar-border: hsl(var(--character-primary) / 0.4);
+  --autocomplete-hover-bg: hsl(var(--character-primary));
+  --settings-accent-shadow: hsl(var(--character-primary) / 0.1);
+  --settings-primary-border: hsl(var(--character-primary) / 0.26);
+  --settings-primary-gradient:
+    linear-gradient(135deg, hsl(var(--character-primary)), hsl(var(--character-primary-deep)));
+  --settings-primary-text: hsl(var(--character-primary-foreground));
+  --settings-primary-shadow: hsl(var(--character-primary) / 0.2);
+  --settings-primary-shadow-hover: hsl(var(--character-primary) / 0.22);
+  --settings-secondary-border-hover: hsl(var(--character-primary) / 0.3);
+  --settings-secondary-bg-hover: hsl(var(--character-primary) / 0.06);
+  --settings-glow-hover: hsl(var(--character-primary) / 0.38);
+  --home-panel-border-hover: hsl(var(--character-primary) / 0.34);
+  --home-panel-border-selected: hsl(var(--character-primary) / 0.46);
+  --home-panel-gradient-start: hsl(var(--character-primary) / 0.3);
+  --home-panel-selected-shadow:
+    0 0 0 1px hsl(var(--character-primary) / 0.14),
+    0 4px 16px hsl(var(--character-primary) / 0.16);
+  --home-history-item-selected-bg:
+    linear-gradient(180deg, hsl(var(--character-primary) / 0.16), hsl(var(--character-primary) / 0.1));
+  --home-surface-button-border-hover: hsl(var(--character-primary) / 0.28);
+  --home-hero-border: hsl(var(--character-primary) / 0.38);
+  --home-hero-gradient-start: hsl(var(--character-primary) / 0.28);
+  --home-history-glow: hsl(var(--character-primary) / 0.22);
+  --login-brand-button-start: hsl(var(--character-primary));
+  --login-brand-button-end: hsl(var(--character-primary-deep));
+  --login-brand-button-start-hover: hsl(var(--character-primary));
+  --login-brand-button-end-hover: hsl(var(--character-primary-soft));
+  --chat-avatar-user-bg: hsl(var(--character-primary) / 0.8);
+  --chat-avatar-user-border: hsl(var(--character-primary) / 0.15);
+  --chat-avatar-ai-bg: hsl(var(--character-primary) / 0.8);
+  --chat-avatar-ai-border: hsl(0 0% 100% / 0.1);
+  --chat-bubble-user-bg: hsl(var(--character-primary) / 0.1);
+  --chat-bubble-user-border: hsl(var(--character-primary) / 0.2);
+}
+
+/* 文本选中色：跟随主色（未选主题时即默认青色） */
+::selection {
+  background: hsl(var(--primary) / 0.26);
+  color: hsl(var(--foreground));
+}
+
+/* 滚动条强调色：默认走前景色透明度，角色主题下走主色 */
+html[data-character] ::-webkit-scrollbar-thumb {
+  background: hsl(var(--character-primary) / 0.26);
+}
+
+html[data-character] ::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--character-primary) / 0.44);
+}
+
+/* =========================================
    2. GLOBAL STYLES (from Classic)
    ========================================= */
 
@@ -793,9 +960,9 @@
 }
 
 .badge-cyan {
-  background: rgba(0, 212, 255, 0.15);
+  background: hsl(var(--primary) / 0.15);
   color: var(--color-cyan);
-  border: 1px solid rgba(0, 212, 255, 0.3);
+  border: 1px solid hsl(var(--primary) / 0.3);
 }
 
 .badge-purple {
@@ -853,12 +1020,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: hsl(var(--foreground) / 0.14);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: hsl(var(--foreground) / 0.26);
 }
 
 /* ============ Animations ============ */
@@ -2007,20 +2174,20 @@ textarea {
 }
 
 .btn-primary {
-  border: 1px solid rgba(0, 212, 255, 0.26);
+  border: 1px solid hsl(var(--primary) / 0.26);
   background: linear-gradient(
     135deg,
-    rgba(0, 212, 255, 0.96),
-    rgba(0, 168, 204, 0.96)
+    hsl(var(--primary) / 0.96),
+    hsl(var(--primary-deep) / 0.96)
   );
-  color: #041118;
-  box-shadow: 0 12px 28px rgba(0, 212, 255, 0.2);
+  color: var(--btn-primary-text);
+  box-shadow: 0 12px 28px hsl(var(--primary) / 0.2);
 }
 
 .btn-primary:hover {
   transform: translateY(-1px);
   filter: brightness(1.04);
-  box-shadow: 0 18px 34px rgba(0, 212, 255, 0.22);
+  box-shadow: 0 18px 34px hsl(var(--primary) / 0.22);
 }
 
 .btn-secondary {
@@ -2066,7 +2233,7 @@ textarea {
 :root:not(.dark) .portfolio-page .btn-primary:hover:not(:disabled) {
   box-shadow:
     inset 0 1px 0 hsl(0 0% 100% / 0.18),
-    0 18px 34px rgba(0, 212, 255, 0.22);
+    0 18px 34px hsl(var(--primary) / 0.22);
 }
 
 .bg-hover {

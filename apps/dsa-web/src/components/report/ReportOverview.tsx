@@ -5,6 +5,7 @@ import type {
   ReportSummary as ReportSummaryType,
 } from '../../types/analysis';
 import { Badge, Button, Card, ScoreGauge } from '../common';
+import { CharacterSticker } from '../common/CharacterSticker';
 import { formatDateTime } from '../../utils/format';
 import { getMarketPhaseSummaryLabel, getPartialBarLabel } from '../../utils/marketPhase';
 import { getReportText, normalizeReportLanguage } from '../../utils/reportLanguage';
@@ -407,6 +408,7 @@ export const ReportOverview: React.FC<ReportOverviewProps> = ({
               <ScoreGauge score={summary.sentimentScore} size="lg" language={reportLanguage} />
             </div>
           </Card>
+          <CharacterSticker testId="home-character-faces" className="w-full max-h-[120px]" />
         </div>
       </div>
     </div>

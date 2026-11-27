@@ -64,7 +64,21 @@ import { areStockCodesEquivalent, normalizeStockCode } from '../utils/stockCode'
 import { parseDecisionSignalDate } from '../utils/decisionSignalTime';
 import { buildDecisionActionLabelMap, getDecisionActionLabel } from '../utils/decisionAction';
 
-const PIE_COLORS = ['#00d4ff', '#00ff88', '#ffaa00', '#ff7a45', '#7f8cff', '#ff4466'];
+/**
+ * 饼图配色。
+ *
+ * 首色跟随全站主色 `--primary`（「设置 → 通用设置 → 角色主题」切换后即时变），
+ * 第二色取角色副色，未启用角色主题时回退到原来的紫色，其余保持原有配色以便区分。
+ * 这里用 CSS 变量而不是写死色值，主题切换不需要重新渲染图表。
+ */
+const PIE_COLORS = [
+  'hsl(var(--primary))',
+  'hsl(var(--character-accent, 247 84% 66%))',
+  '#00ff88',
+  '#ffaa00',
+  '#ff7a45',
+  '#ff4466',
+];
 const UNCLASSIFIED_SECTOR = 'UNCLASSIFIED';
 const DEFAULT_PAGE_SIZE = 20;
 const PORTFOLIO_SIGNAL_LOOKUP_CONCURRENCY = 6;

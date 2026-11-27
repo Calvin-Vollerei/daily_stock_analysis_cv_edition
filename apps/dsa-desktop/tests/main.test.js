@@ -1706,3 +1706,73 @@ test('stopBackend uses taskkill on Windows and clears after backend exit', async
   ]);
   assert.equal(mainModule.__getBackendProcessForTest(), null);
 });
+
+// ---------------- 开机页角色立绘（ui-theme.json → ?character=） ----------------
+
+test('readUiThemeCharacter returns the persisted character id', (t) => {
+  const mainModule = loadMainModule(t);
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsa-ui-theme-'));
+  t.after(() => fs.rmSync(tempRoot, { recursive: true, force: true }));
+  const themeFile = path.join(tempRoot, 'ui-theme.json');
+
+  assert.equal(mainModule.readUiThemeCharacter(themeFile), null);
+
+  fs.writeFileSync(themeFile, JSON.stringify({ character: 'takakou' }), 'utf-8');
+  assert.equal(mainModule.readUiThemeCharacter(themeFile), 'takakou');
+
+  fs.writeFileSync(themeFile, JSON.stringify({ character: '  Kurumi ' }), 'utf-8');
+  assert.equal(mainModule.readUiThemeCharacter(themeFile), 'kurumi');
+});
+
+test('readUiThemeCharacter falls back to null on missing or broken state', (t) => {
+  const mainModule = loadMainModule(t);
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsa-ui-theme-bad-'));
+  t.after(() => fs.rmSync(tempRoot, { recursive: true, force: true }));
+  const themeFile = path.join(tempRoot, 'ui-theme.json');
+
+  fs.writeFileSync(themeFile, '{not json', 'utf-8');
+  assert.equal(mainModule.readUiThemeCharacter(themeFile), null);
+
+  fs.writeFileSync(themeFile, JSON.stringify({ character: null }), 'utf-8');
+  assert.equal(mainModule.readUiThemeCharacter(themeFile), null);
+
+  fs.writeFileSync(themeFile, JSON.stringify({ character: 'not-a-character' }), 'utf-8');
+  assert.equal(mainModule.readUiThemeCharacter(themeFile), null);
+
+  fs.writeFileSync(themeFile, JSON.stringify(['takakou']), 'utf-8');
+  assert.equal(mainModule.readUiThemeCharacter(themeFile), null);
+});
+
+test('buildSplashSearch carries the port and the chosen character', (t) => {
+  const mainModule = loadMainModule(t);
+
+  assert.equal(
+    mainModule.buildSplashSearch({ port: 8123, character: 'mebuki' }),
+    '?dsaPort=8123&character=mebuki'
+  );
+  assert.equal(mainModule.buildSplashSearch({ port: 8123 }), '?dsaPort=8123');
+  assert.equal(mainModule.buildSplashSearch({ port: 8123, character: 'nope' }), '?dsaPort=8123');
+  assert.equal(mainModule.buildSplashSearch({}), '');
+});
+
+test('resolveUiThemeFilePath keeps the theme file next to the database', (t) => {
+  const mainModule = loadMainModule(t);
+
+  assert.equal(
+    mainModule.resolveUiThemeFilePath('/opt/dsa/app'),
+    path.join('/opt/dsa/app', 'data', 'ui-theme.json')
+  );
+});
+
+test('buildBackendEnvironment injects DSA_UI_THEME_FILE from the database directory', (t) => {
+  const mainModule = loadMainModule(t, { platform: 'win32' });
+
+  const env = mainModule.buildBackendEnvironment({
+    envFile: 'D:\\dsa\\Daily\\.env',
+    dbPath: 'D:\\dsa\\Daily\\data\\stock_analysis.db',
+    logDir: 'D:\\dsa\\Daily\\logs',
+    sourceEnv: {},
+  });
+
+  assert.equal(env.DSA_UI_THEME_FILE, 'D:\\dsa\\Daily\\data\\ui-theme.json');
+});

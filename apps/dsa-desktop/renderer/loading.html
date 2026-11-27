@@ -44,6 +44,63 @@
         backdrop-filter: blur(20px);
       }
 
+      /* ---------- 开屏页布局：左侧加载 / 右侧角色立绘 ----------
+         没拿到角色（或立绘加载失败）时 body 上没有 .has-character，
+         立绘列 display:none 不占位，整体就是原来的居中单栏。 */
+      .shell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: clamp(20px, 2.6vw, 36px);
+        width: 100%;
+        height: 100%;
+        padding: clamp(14px, 2vw, 28px);
+      }
+
+      .portrait {
+        display: none;
+        flex: 1 1 auto;
+        min-width: 0;
+        height: 100%;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        user-select: none;
+      }
+
+      body.has-character .portrait { display: flex; }
+
+      /* 两栏时左栏微微收窄，把剩余宽度让给立绘；单栏时仍是原来的 680px。 */
+      body.has-character .panel {
+        width: min(620px, 92vw);
+        flex: 0 0 auto;
+      }
+
+      .portrait img {
+        display: block;
+        width: auto;
+        height: 80vh;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        object-position: center;
+        border: 0;
+        background: transparent;
+        filter: drop-shadow(0 22px 44px rgba(0, 0, 0, 0.5));
+        animation: portraitIn 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+
+      @keyframes portraitIn {
+        from { opacity: 0; transform: translateX(16px) scale(0.99); }
+        to { opacity: 1; transform: none; }
+      }
+
+      /* 窗口太窄时两栏会互相挤压：直接回到单栏，保证小屏也完整可用。 */
+      @media (max-width: 1040px) {
+        body.has-character .portrait { display: none; }
+        body.has-character .panel { width: min(680px, 92vw); flex: 0 1 auto; }
+      }
+
       .head {
         display: flex;
         align-items: baseline;
@@ -364,37 +421,46 @@
     </style>
   </head>
   <body>
-    <div class="panel">
-      <div class="head">
-        <h1 class="title">Daily Stock Analysis</h1>
-        <span class="badge" id="badge">启动自检</span>
+    <div class="shell">
+      <div class="panel">
+        <div class="head">
+          <h1 class="title">Daily Stock Analysis</h1>
+          <span class="badge" id="badge">启动自检</span>
+        </div>
+        <p class="subtitle">正在检查本地服务连通性，全部通过后自动进入主界面</p>
+
+        <div class="checks" id="checks"></div>
+
+        <div class="bar-wrap" id="barWrap">
+          <div class="bar" id="bar"></div>
+        </div>
+        <div class="bar-meta" id="barMeta">
+          <span id="stage">准备中…</span>
+          <span class="pct" id="pct">0%</span>
+        </div>
+
+        <div class="verdict" id="verdict"></div>
+
+        <!-- 展示位：自检通过后显示。后续要加的文字/标语/版本信息放这里。 -->
+        <div class="showcase" id="showcase"></div>
+
+        <div class="actions" id="actions">
+          <button id="retryBtn">重新检测</button>
+          <button class="ghost" id="forceBtn">仍然进入</button>
+        </div>
+
+        <p class="tips">
+          若长时间无响应，可检查应用安装目录下的 <code>logs</code> 文件夹，
+          或在启动器的日志输出中查看服务启动记录。
+        </p>
       </div>
-      <p class="subtitle">正在检查本地服务连通性，全部通过后自动进入主界面</p>
 
-      <div class="checks" id="checks"></div>
-
-      <div class="bar-wrap" id="barWrap">
-        <div class="bar" id="bar"></div>
+      <!-- 右侧角色立绘：素材随桌面端打包在 renderer/themes/<id>/sprite.webp，
+           角色 id 由主进程通过 ?character= 传入（开屏页是 file:// 源，读不到网页 localStorage）。
+           加载成功才加 .has-character 显示，失败则整页回到居中单栏。 -->
+      <div class="portrait" id="portrait">
+        <img id="portraitImg" alt="" draggable="false" />
       </div>
-      <div class="bar-meta" id="barMeta">
-        <span id="stage">准备中…</span>
-        <span class="pct" id="pct">0%</span>
-      </div>
-
-      <div class="verdict" id="verdict"></div>
-
-      <!-- 展示位：自检通过后显示。后续要加的文字/标语/版本信息放这里。 -->
-      <div class="showcase" id="showcase"></div>
-
-      <div class="actions" id="actions">
-        <button id="retryBtn">重新检测</button>
-        <button class="ghost" id="forceBtn">仍然进入</button>
-      </div>
-
-      <p class="tips">
-        若长时间无响应，可检查应用安装目录下的 <code>logs</code> 文件夹，
-        或在启动器的日志输出中查看服务启动记录。
-      </p>
     </div>
 
     <script>
@@ -415,6 +481,38 @@
       const BACKEND = "http://127.0.0.1:" + BACKEND_PORT;
         const BRIDGE = "http://127.0.0.1:18999";
         const SECTOR = "http://127.0.0.1:8799";
+
+        // --------------------------- 角色立绘 ---------------------------
+        // 角色 id 由主进程通过 ?character= 传入（与 dsaPort 同一条 query）。
+        // 立绘是本地的 file:// 资源，路径相对本文件，不依赖后端是否已启动。
+        // 只有图片真正解码成功才切两栏；否则保持现在的居中单栏，
+        // 绝不出现破图或空白半屏。
+        const CHARACTER_IDS = ["takakou", "mebuki", "mochiko", "kurumi"];
+
+        (function applyCharacterPortrait() {
+          const params = new URLSearchParams(window.location.search);
+          const raw = (params.get("character") || "").trim().toLowerCase();
+          if (CHARACTER_IDS.indexOf(raw) === -1) {
+            return;
+          }
+          const img = document.getElementById("portraitImg");
+          if (!img) {
+            return;
+          }
+          const backToSingleColumn = () => {
+            document.body.classList.remove("has-character");
+            img.removeAttribute("src");
+          };
+          img.addEventListener("load", () => {
+            if (!img.naturalWidth || !img.naturalHeight) {
+              backToSingleColumn();
+              return;
+            }
+            document.body.classList.add("has-character");
+          });
+          img.addEventListener("error", backToSingleColumn);
+          img.src = "themes/" + raw + "/sprite.webp";
+        })();
 
         // 启动期的服务是逐步就绪的，给足重试窗口。
         // 总等待预算 ≈ 单次超时 × 重试次数，按最慢的启动器实测（约 60s）留够余量。

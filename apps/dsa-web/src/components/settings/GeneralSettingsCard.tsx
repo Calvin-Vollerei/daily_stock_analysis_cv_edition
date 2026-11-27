@@ -1,9 +1,11 @@
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Monitor, Moon, Sun } from 'lucide-react';
+import { Check, Monitor, Moon, Palette, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useUiLanguage } from '../../contexts/UiLanguageContext';
 import type { UiTextKey } from '../../i18n/uiText';
+import { CHARACTER_THEMES } from '../../themes/characterThemes';
+import { useCharacterTheme } from '../../themes/useCharacterTheme';
 import {
   DEFAULT_UI_APPEARANCE,
   UI_FONT_SIZE_CHOICES,
@@ -42,7 +44,10 @@ function sameAppearance(a: UiAppearance, b: UiAppearance): boolean {
 
 export const GeneralSettingsCard: React.FC = () => {
   const { t, language, setLanguage } = useUiLanguage();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  // 角色主题：只把色板写进 CSS 变量并落 localStorage，即时生效，无需保存按钮
+  const { themeId: characterThemeId, setThemeId: setCharacterThemeId } = useCharacterTheme();
+  const isDark = resolvedTheme === 'dark';
 
   // savedAppearance = 已落盘的设置；draft = 正在编辑的草稿。
   // 字体/字号/行高是「改完点保存」的模式（语言和主题是开关，即时生效）。
@@ -177,6 +182,72 @@ export const GeneralSettingsCard: React.FC = () => {
                 >
                   <Icon className="h-4 w-4" aria-hidden="true" />
                   {t(labelKey)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 角色主题：开关型，即时生效（只替换全站高亮色，不改变明暗） */}
+        <div className="space-y-2 md:col-span-2">
+          <span className="block text-sm font-medium text-foreground">
+            {t('settings.characterThemeLabel')}
+          </span>
+          <span className="block text-xs leading-5 text-muted-text">
+            {t('settings.characterThemeDescription')}
+          </span>
+          <div
+            className="flex flex-wrap gap-2"
+            role="group"
+            aria-label={t('settings.characterThemeLabel')}
+          >
+            <button
+              type="button"
+              onClick={() => setCharacterThemeId(null)}
+              aria-pressed={characterThemeId === null}
+              className={cn(
+                'inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors',
+                characterThemeId === null
+                  ? 'border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.12)] text-foreground ring-2 ring-[hsl(var(--primary)/0.28)]'
+                  : 'settings-border bg-background/40 text-secondary-text hover:bg-[var(--settings-surface-hover)]',
+              )}
+            >
+              <Palette className="h-4 w-4" aria-hidden="true" />
+              {t('settings.characterThemeDefault')}
+              {characterThemeId === null ? (
+                <Check className="h-3.5 w-3.5" aria-hidden="true" />
+              ) : null}
+            </button>
+            {CHARACTER_THEMES.map((item) => {
+              const active = characterThemeId === item.id;
+              // 圆点用当前明暗对应的那套色板，避免暗色下取到刺眼的亮色
+              const palette = isDark ? item.dark : item.light;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setCharacterThemeId(item.id)}
+                  aria-pressed={active}
+                  title={language === 'en' ? item.nameEn : item.tagline}
+                  className={cn(
+                    'inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-colors',
+                    active
+                      ? 'border-[hsl(var(--primary)/0.5)] bg-[hsl(var(--primary)/0.12)] text-foreground ring-2 ring-[hsl(var(--primary)/0.28)]'
+                      : 'settings-border bg-background/40 text-secondary-text hover:bg-[var(--settings-surface-hover)]',
+                  )}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="inline-block h-4 w-4 shrink-0 rounded-full border border-black/10 shadow-sm"
+                    style={{ backgroundColor: `hsl(${palette.primary})` }}
+                  />
+                  <span className="flex flex-col leading-tight">
+                    <span>{language === 'en' ? item.nameEn : item.name}</span>
+                    <span className="text-[11px] text-muted-text">
+                      {language === 'en' ? item.name : item.nameEn}
+                    </span>
+                  </span>
+                  {active ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : null}
                 </button>
               );
             })}
