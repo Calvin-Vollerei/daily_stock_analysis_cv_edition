@@ -2086,7 +2086,7 @@ const PortfolioPage: React.FC = () => {
             <div className="h-[22rem] py-2">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={concentrationPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={96}>
+                  <Pie data={concentrationPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90}>
                     {concentrationPieData.map((entry, index) => (
                       <Cell key={`cell-${entry.name}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                     ))}
