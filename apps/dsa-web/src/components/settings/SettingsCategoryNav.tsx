@@ -1,5 +1,5 @@
 import type React from 'react';
-import { Bell, Bot, Database, Layers3, LineChart, Settings2, SlidersHorizontal } from 'lucide-react';
+import { Bell, Bot, Database, Info, Layers3, LineChart, Settings2, SlidersHorizontal } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Badge } from '../common';
 import { useUiLanguage } from '../../contexts/UiLanguageContext';
@@ -15,6 +15,7 @@ interface SettingsCategoryNavProps {
 }
 
 const categoryIconMap: Partial<Record<SystemConfigCategory, LucideIcon>> = {
+  about: Info,
   system: Settings2,
   base: SlidersHorizontal,
   data_source: Database,

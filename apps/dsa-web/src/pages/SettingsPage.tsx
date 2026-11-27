@@ -16,6 +16,7 @@ import {
   AuthSettingsCard,
   ChangePasswordCard,
   GeneralSettingsCard,
+  AboutSettingsCard,
   GenerationBackendStatusPanel,
   IntelligentImport,
   LLMChannelEditor,
@@ -1314,7 +1315,8 @@ const SettingsPage: React.FC = () => {
   const activeCategoryTitle = getCategoryTitle(activeCategory as SystemConfigCategory, t('settings.activePanelTitle'), uiLanguage);
   const activeCategoryDescription = getCategoryDescription(activeCategory as SystemConfigCategory, '', uiLanguage);
   const selectedAgentBackend = (rawActiveItemMap.get('AGENT_BACKEND') || 'auto').trim().toLowerCase();
-  const activeConfigPanel = hasActiveConfigItems ? (
+  // 关于页是纯展示分类：既不渲染配置列表，也不渲染「暂无配置项」空态。
+  const activeConfigPanel = activeCategory === 'about' ? null : hasActiveConfigItems ? (
     <SettingsSectionCard
       title={activeCategoryTitle}
       description={activeCategoryDescription || t('settings.activePanelDescription')}
@@ -1512,6 +1514,7 @@ const SettingsPage: React.FC = () => {
               categories={[
                 { category: 'general', title: '通用设置', displayOrder: -1, fields: [] },
                 ...categories,
+                { category: 'about', title: '关于', displayOrder: 999, fields: [] },
               ]}
               itemsByCategory={itemsByCategory}
               activeCategory={activeCategory}
@@ -1765,6 +1768,7 @@ const SettingsPage: React.FC = () => {
                 </div>
               </SettingsSectionCard>
             ) : null}
+            {!trimmedSearchQuery && activeCategory === 'about' ? <AboutSettingsCard /> : null}
             {!trimmedSearchQuery && activeCategory === 'general' ? <GeneralSettingsCard /> : null}
             {!trimmedSearchQuery && activeCategory === 'general' ? <MacroSourceCard /> : null}
             {!trimmedSearchQuery && activeCategory === 'base' ? (

@@ -4,6 +4,7 @@ import type { UiLanguage } from '../i18n/uiText';
 const categoryTitleMap: Record<UiLanguage, Record<SystemConfigCategory, string>> = {
   zh: {
   general: '通用设置',
+  about: '关于',
   base: '基础设置',
   data_source: '数据源',
   ai_model: 'AI 模型',
@@ -15,6 +16,7 @@ const categoryTitleMap: Record<UiLanguage, Record<SystemConfigCategory, string>>
   },
   en: {
     general: 'General',
+  about: 'About',
     base: 'Base settings',
     data_source: 'Data sources',
     ai_model: 'AI models',
@@ -29,6 +31,7 @@ const categoryTitleMap: Record<UiLanguage, Record<SystemConfigCategory, string>>
 const categoryDescriptionMap: Record<UiLanguage, Partial<Record<SystemConfigCategory, string>>> = {
   zh: {
   general: '界面语言、主题、字体与「A股宏观」数据源等本机偏好。',
+  about: '当前版本、更新检查与作者信息。',
   base: '管理自选股与基础运行参数。',
   data_source: '管理行情数据源与优先级策略。',
   ai_model: '管理模型服务、模型名称与推理参数。',
@@ -40,6 +43,7 @@ const categoryDescriptionMap: Record<UiLanguage, Partial<Record<SystemConfigCate
   },
   en: {
     general: 'Interface language, theme, fonts, and the A-share macro source. Stored on this device only.',
+  about: 'Current version, update check, and credits.',
     base: 'Manage watchlists and base runtime parameters.',
     data_source: 'Manage market data sources and priority strategies.',
     ai_model: 'Manage model services, model names, and inference parameters.',

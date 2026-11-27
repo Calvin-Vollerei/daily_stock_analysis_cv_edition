@@ -26,6 +26,7 @@ from api.v1.endpoints import (
     intelligence,
     portfolio,
     stocks,
+    system_about,
     system_config,
     usage,
 )
@@ -74,6 +75,12 @@ router.include_router(
     system_config.router,
     prefix="/system",
     tags=["SystemConfig"]
+)
+
+router.include_router(
+    system_about.router,
+    prefix="/system",
+    tags=["SystemAbout"]
 )
 
 router.include_router(

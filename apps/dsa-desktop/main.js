@@ -902,6 +902,8 @@ function buildBackendEnvironment({
     ...readEnvFileValues(envFile, sourceEnv),
     ...sourceEnv,
     DSA_DESKTOP_MODE: 'true',
+    // 关于页要显示桌面端版本：后端自己不知道 app.getVersion()，由主进程注入。
+    DSA_DESKTOP_VERSION: resolveDesktopVersion() || 'unknown',
     ENV_FILE: envFile,
     DATABASE_PATH: dbPath,
     LOG_DIR: logDir,

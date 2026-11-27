@@ -14,3 +14,4 @@ export * from './GenerationBackendStatusPanel';
 export * from './AgentBackendStatusPanel';
 export * from './GeneralSettingsCard';
 export * from './MacroSourceCard';
+export { AboutSettingsCard } from './AboutSettingsCard';
