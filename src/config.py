@@ -1422,6 +1422,20 @@ class Config:
     portfolio_risk_sector_budget_s: float = 4.0
     portfolio_fx_update_enabled: bool = True
 
+    # === Portfolio TZZB (同花顺投资账本 / 账本精灵) 同步 ===
+    # 默认关闭：不配置时启动链路与改动前完全一致，账本精灵不是必需依赖。
+    tzzb_sync_enabled: bool = False
+    # 接入方式 A：外部桥接命令（读账本并把持仓写回 DSA 的库），空表示不用。
+    tzzb_sync_command: str = ''
+    # 接入方式 B：MCP 端点 + 授权文件，后端只读校验账户与新鲜度（不写库、不刷新令牌）。
+    tzzb_mcp_endpoint: str = ''
+    tzzb_mcp_auth_file: str = ''
+    # 需要同步的账户范围（逗号分隔的账户 ID / 名称），空表示账本返回的全部账户。
+    tzzb_sync_accounts: str = ''
+    # 去重窗口 / 硬超时（秒）：默认 6 小时 / 15 分钟，与 PORTFOLIO_SYNC_* 同语义。
+    tzzb_sync_min_interval_seconds: float = 6 * 3600.0
+    tzzb_sync_timeout_seconds: float = 900.0
+
     # Discord 机器人状态
     discord_bot_status: str = "A股智能分析 | /help"
 
@@ -2543,6 +2557,23 @@ class Config:
                 minimum=0.0,
             ),
             portfolio_fx_update_enabled=os.getenv('PORTFOLIO_FX_UPDATE_ENABLED', 'true').lower() == 'true',
+            tzzb_sync_enabled=parse_env_bool(os.getenv('TZZB_SYNC_ENABLED'), default=False),
+            tzzb_sync_command=(os.getenv('TZZB_SYNC_COMMAND') or '').strip(),
+            tzzb_mcp_endpoint=(os.getenv('TZZB_MCP_ENDPOINT') or '').strip(),
+            tzzb_mcp_auth_file=(os.getenv('TZZB_MCP_AUTH_FILE') or '').strip(),
+            tzzb_sync_accounts=(os.getenv('TZZB_SYNC_ACCOUNTS') or '').strip(),
+            tzzb_sync_min_interval_seconds=parse_env_float(
+                os.getenv('TZZB_SYNC_MIN_INTERVAL_SECONDS'),
+                6 * 3600.0,
+                field_name='TZZB_SYNC_MIN_INTERVAL_SECONDS',
+                minimum=0.0,
+            ),
+            tzzb_sync_timeout_seconds=parse_env_float(
+                os.getenv('TZZB_SYNC_TIMEOUT_SECONDS'),
+                900.0,
+                field_name='TZZB_SYNC_TIMEOUT_SECONDS',
+                minimum=0.0,
+            ),
             screening_enabled=parse_env_bool(os.getenv('SCREENING_ENABLED'), default=False),
         )
     

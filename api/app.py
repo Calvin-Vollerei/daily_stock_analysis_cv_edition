@@ -243,16 +243,32 @@ def _portfolio_warmup_delay() -> float:
         return _PORTFOLIO_WARMUP_DELAY_DEFAULT
 
 
+def _schedule_portfolio_account_sync() -> None:
+    """Start the optional account-sync hook (external command or TZZB ledger).
+
+    Kept independent from the realtime quote warmup: disabling warmup must not
+    silently disable the configured account sync.
+    """
+    try:
+        from src.services.portfolio_sync_command import schedule_portfolio_sync
+
+        schedule_portfolio_sync()
+    except Exception as exc:  # noqa: BLE001 - external sync is optional
+        logger.warning("[portfolio sync] startup scheduling failed: %s", exc)
+
+
 def _schedule_portfolio_open_refresh() -> None:
     """Refresh holdings prices right after startup.
 
     Restores "opening the app refreshes my holdings": exchange-traded symbols are
     warmed into the realtime quote cache, and an optional account-sync command
-    (bank wealth products / gold / OTC fund NAVs) is started when configured.
-    Both run in daemon threads and never block or fail the startup path.
+    (bank wealth products / gold / OTC fund NAVs / TZZB ledger) is started when
+    configured. Both run in daemon threads and never block or fail the startup
+    path.
     """
     if not _portfolio_warmup_enabled():
         logger.info("[portfolio quotes] startup warmup disabled by %s", PORTFOLIO_WARMUP_ENV)
+        _schedule_portfolio_account_sync()
         return
 
     import threading
@@ -272,12 +288,7 @@ def _schedule_portfolio_open_refresh() -> None:
 
     threading.Thread(target=_warm_quotes, name="portfolio-quote-warmup", daemon=True).start()
 
-    try:
-        from src.services.portfolio_sync_command import schedule_portfolio_sync
-
-        schedule_portfolio_sync()
-    except Exception as exc:  # noqa: BLE001 - external sync is optional
-        logger.warning("[portfolio sync] startup scheduling failed: %s", exc)
+    _schedule_portfolio_account_sync()
 
 
 def _load_runtime_scheduler_args() -> dict:

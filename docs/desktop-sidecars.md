@@ -20,8 +20,10 @@
 Electron main.js
   └─ startBackend() 注入 ENV_FILE / DATABASE_PATH / LOG_DIR / WEBUI_PORT
        └─ FastAPI startup 钩子 src/services/portfolio_sync_command.py
-            └─ 读取 PORTFOLIO_SYNC_COMMAND（留空即关闭），注入 DSA_DB_PATH，daemon 线程跑一次
-                 └─ 用户自己的同步脚本（一个或多个）
+            ├─ PORTFOLIO_SYNC_COMMAND 非空 → 注入 DSA_DB_PATH，daemon 线程跑一次
+            └─ 为空且开启了账本同步 → src/services/tzzb_sync.py 组织同一条钩子
+                 ├─（可选）只读 MCP 账户校验（账户数 / 最近同步时间 / 账户范围）
+                 └─（可选）用户自己的账本桥接命令（唯一写库路径）
                       └─ 按 (代码, 日期) 写入 stock_daily
 ```
 
@@ -30,7 +32,9 @@ Electron main.js
 - 触发点在**后端就绪之后**，不阻塞首屏；同步脚本崩了/超时也只写日志，接口与页面不受影响；
 - `portfolio_sync_command.py` 自带去重窗口（`PORTFOLIO_SYNC_MIN_INTERVAL_SECONDS`，默认 6 小时），
   反复开关应用不会反复爬银行；
-- 钩子是通用能力，不绑定任何具体渠道；多脚本串联由用户自己决定（见下文的 wrapper 写法）。
+- 钩子是通用能力，不绑定任何具体渠道；多脚本串联由用户自己决定（见下文的 wrapper 写法）；
+- `PORTFOLIO_SYNC_COMMAND` 与服务端账本（TZZB）配置**互斥且后者优先级更低**：写了命令就用命令，
+  没写才看账本开关。
 
 ## 安装包里带什么、不带什么
 
@@ -110,6 +114,51 @@ PORTFOLIO_SYNC_COMMAND=py -3 "<本机私有目录>\my-sidecars.py"
 `close` = 单位净值或单价，`open/high/low` 同 `close`（沿用库内既有约定），
 `data_source` = 脚本标识，便于按来源筛选与回滚。
 
+## 接入同花顺投资账本（TZZB / 账本精灵）
+
+同花顺投资账本（TZZB）是「银行理财 + 黄金 + 场外基金」这些没有行情源的持仓的上游。
+DSA 把它当成**可选的投资组合数据源**，配置入口在 **设置 → 数据源**（`TZZB_*`，默认全部关闭），
+写入 `.env` 后由启动钩子消费：
+
+| 配置项 | 默认 | 作用 |
+| --- | --- | --- |
+| `TZZB_SYNC_ENABLED` | `false` | 总开关。关闭时启动链路与未加该配置完全一致 |
+| `TZZB_SYNC_COMMAND` | 空 | 接入方式 A：桥接命令（唯一写库路径，例如 `py -3 "<目录>\tzzb-to-dsa.py"`） |
+| `TZZB_MCP_ENDPOINT` | 空 | 接入方式 B：账本 MCP JSON-RPC 端点，后端自己做只读账户校验 |
+| `TZZB_MCP_AUTH_FILE` | 空 | 接入方式 B 的授权文件（`access_token` + `expires_at`，毫秒） |
+| `TZZB_SYNC_ACCOUNTS` | 空（全部） | 需要同步/校验的账户 ID 或名称，逗号分隔 |
+| `TZZB_SYNC_MIN_INTERVAL_SECONDS` | `21600` | 去重窗口；`0` = 每次启动都同步 |
+| `TZZB_SYNC_TIMEOUT_SECONDS` | `900` | 命令硬超时 |
+
+行为约定（这些是"不阻塞启动"的实现口径）：
+
+- 只有 `TZZB_SYNC_ENABLED=true` 且至少配置了一种接入方式才会跑；否则钩子保持关闭；
+- **只读校验**（`TZZB_MCP_ENDPOINT`）由后端自己发起：调用账本 `promptAccountSelection`，
+  日志记录账户数量、最近同步时间、以及 `TZZB_SYNC_ACCOUNTS` 里对不上号的条目；
+  只读、不写库、**不刷新令牌**（令牌刷新由桥接命令负责，后端不会改写用户的令牌文件）；
+- **写库**只由 `TZZB_SYNC_COMMAND` 完成，命令额外收到三个环境变量
+  `TZZB_SYNC_ACCOUNTS` / `TZZB_MCP_ENDPOINT` / `TZZB_MCP_AUTH_FILE`（空值不注入），
+  脚本因此不必把这些值再写死一份；
+- 任何失败（文件缺失、令牌过期、端点不可达、命令 rc!=0、超时）都只写日志，**不阻塞启动、不影响接口**；
+- 设置在**下次启动应用**生效；若同时设置了 `PORTFOLIO_SYNC_COMMAND`，则以它为准（通常它已包含账本脚本）。
+
+最小可用配置（只读校验 + 现有私有桥接脚本）：
+
+```ini
+TZZB_SYNC_ENABLED=true
+TZZB_SYNC_COMMAND=py -3 "<本机私有目录>\tzzb-to-dsa.py"
+TZZB_MCP_ENDPOINT=https://tzzb.10jqka.com.cn/mcp
+TZZB_MCP_AUTH_FILE=C:\Users\<user>\.dsh-tzzb\token.json
+TZZB_SYNC_ACCOUNTS=193885689
+```
+
+排障：
+
+```powershell
+# 启动后应能看到账本相关日志（--dry-run 的桥接命令同样可用）
+Select-String -Path "<安装目录>\logs\desktop.log" -Pattern "portfolio sync|\[tzzb\]"
+```
+
 ## 手动验证
 
 ```powershell
@@ -141,10 +190,11 @@ grep -rniE "账户|passwd|secret|请填写" scripts/desktop-sidecars-example/ ||
 
 ## 已知缺口（留给后续）
 
-1. **默认命令没有自动注入**：`PORTFOLIO_SYNC_COMMAND` 需要用户手写。更友好的做法是在
+1. **通用命令没有自动注入**：`PORTFOLIO_SYNC_COMMAND` 仍需用户手写。更友好的做法是在
    `apps/dsa-desktop/main.js` 的 `buildBackendEnvironment()`（约 885 行）里，当用户未设置该键、
    且 `resources/desktop-sidecars/` 下有脚本时补一个默认值（只影响进程环境，不改写用户 `.env`）。
    这属于 Electron 侧改动，不需要重打 PyInstaller。
+   （账本侧已先行收口：`TZZB_*` 可在 设置 → 数据源 里配置，后端直接消费，见上文。）
 2. **持仓穿透的消费端已补齐**：后端已提供 `GET /api/v1/portfolio/lookthrough`，优先取中间层
    （`PORTFOLIO_SECTOR_LAYER_URL`），中间层不可用时回退本地快照 `sector-layer/lookthrough.json`
    （可用 `PORTFOLIO_LOOKTHROUGH_PATH` 覆盖），两者都缺才返回 404 让前端卡片降级。

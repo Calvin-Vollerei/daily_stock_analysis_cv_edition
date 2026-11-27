@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CACHE_TTL_SECONDS = 60.0
 DEFAULT_WAIT_SECONDS = 1.5
+DEFAULT_FORCE_WAIT_SECONDS = 8.0
 DEFAULT_FAILURE_BACKOFF_SECONDS = 300.0
 # Enough workers so every quotable holding of a normal portfolio starts at once:
 # OTC fund codes burn the full provider chain before failing, and serializing
@@ -235,6 +236,13 @@ class PortfolioQuoteCache:
     def wait_for(self, symbols: Iterable[str], timeout: Optional[float] = None) -> float:
         """Wait at most ``timeout`` seconds until pending symbols are resolved.
 
+        A symbol counts as resolved only once the *current* refresh cycle wrote
+        a quote for it: an entry left by an earlier cycle (stale, or fresh but
+        explicitly re-fetched through ``force``) must keep the caller waiting,
+        otherwise the request that started the cycle would answer with the
+        previous cycle's price and the user would have to reload twice to see a
+        new number.
+
         Only the first caller of a refresh cycle waits: the cycle keeps running
         in the background, so a second view (or the risk endpoint right after the
         snapshot) would only pay the same latency again for stragglers such as
@@ -243,13 +251,20 @@ class PortfolioQuoteCache:
         pending = [symbol for symbol in symbols if symbol]
         if not pending:
             return 0.0
+
+        def unresolved() -> List[str]:
+            cycle_started = self._last_started_at or 0.0
+            outstanding: List[str] = []
+            for symbol in pending:
+                if symbol not in self._pending:
+                    continue
+                cached = self._quotes.get(symbol)
+                if cached is None or cached.fetched_at < cycle_started:
+                    outstanding.append(symbol)
+            return outstanding
+
         with self._condition:
-            outstanding = [
-                symbol
-                for symbol in pending
-                if symbol in self._pending and symbol not in self._quotes
-            ]
-            if not outstanding or self._waited_cycle_id == self._cycle_id:
+            if not unresolved() or self._waited_cycle_id == self._cycle_id:
                 return 0.0
             self._waited_cycle_id = self._cycle_id
         budget = self._wait if timeout is None else max(0.0, float(timeout))
@@ -257,12 +272,7 @@ class PortfolioQuoteCache:
         deadline = started + budget
         with self._condition:
             while True:
-                outstanding = [
-                    symbol
-                    for symbol in pending
-                    if symbol in self._pending and symbol not in self._quotes
-                ]
-                if not outstanding:
+                if not unresolved():
                     break
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:

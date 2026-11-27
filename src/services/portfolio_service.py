@@ -21,6 +21,7 @@ from src.repositories.portfolio_repo import (
     PortfolioRepository,
 )
 from src.services.portfolio_quote_cache import (
+    DEFAULT_FORCE_WAIT_SECONDS as PORTFOLIO_QUOTE_FORCE_WAIT_SECONDS,
     DEFAULT_WAIT_SECONDS as PORTFOLIO_QUOTE_DEFAULT_WAIT_SECONDS,
     get_quote_cache,
     is_realtime_quotable,
@@ -490,13 +491,23 @@ class PortfolioService:
         cost_method: str = "fifo",
         include_realtime: bool = True,
         read_only: bool = False,
+        force_refresh: bool = False,
     ) -> Dict[str, Any]:
-        """Replay holdings; read-only callers skip live quotes and snapshot writes."""
+        """Replay holdings; read-only callers skip live quotes and snapshot writes.
+
+        ``force_refresh`` is for explicit user refreshes only: it bypasses the
+        quote cache TTL and gives the pre-fetch a larger wait budget, so the
+        response actually carries prices fetched for this request instead of a
+        quote cached up to one TTL ago.
+        """
         as_of_date = as_of or date.today()
         method = self._normalize_cost_method(cost_method)
         # One bounded wait budget per request: a snapshot spans several accounts,
         # and each account must not restart the same cold-cache wait.
-        realtime_wait_deadline = time.monotonic() + PORTFOLIO_QUOTE_DEFAULT_WAIT_SECONDS
+        wait_budget = (
+            PORTFOLIO_QUOTE_FORCE_WAIT_SECONDS if force_refresh else PORTFOLIO_QUOTE_DEFAULT_WAIT_SECONDS
+        )
+        realtime_wait_deadline = time.monotonic() + wait_budget
 
         if account_id is not None:
             account = self._require_active_account(account_id)
@@ -525,6 +536,7 @@ class PortfolioService:
                 cost_method=method,
                 include_realtime=include_realtime and not read_only,
                 realtime_wait_deadline=realtime_wait_deadline,
+                force_refresh=force_refresh and not read_only,
             )
 
             if not read_only:
@@ -804,6 +816,7 @@ class PortfolioService:
         cost_method: str,
         include_realtime: bool,
         realtime_wait_deadline: Optional[float] = None,
+        force_refresh: bool = False,
     ) -> Dict[str, Any]:
         trades = self.repo.list_trades(account.id, as_of=as_of_date)
         cash_ledger = self.repo.list_cash_ledger(account.id, as_of=as_of_date)
@@ -965,6 +978,7 @@ class PortfolioService:
             avg_state=avg_state,
             include_realtime=include_realtime,
             realtime_wait_deadline=realtime_wait_deadline,
+            force_refresh=force_refresh,
         )
         fx_stale = fx_stale or stale_pos
 
@@ -1038,6 +1052,7 @@ class PortfolioService:
         avg_state: Dict[Tuple[str, str, str], _AvgState],
         include_realtime: bool = True,
         realtime_wait_deadline: Optional[float] = None,
+        force_refresh: bool = False,
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float, float, bool]:
         position_rows: List[Dict[str, Any]] = []
         lot_rows: List[Dict[str, Any]] = []
@@ -1069,6 +1084,7 @@ class PortfolioService:
             self._prefetch_realtime_position_prices(
                 active_symbols,
                 wait_deadline=realtime_wait_deadline,
+                force_refresh=force_refresh,
             )
             if active_symbols
             else None
@@ -1216,6 +1232,7 @@ class PortfolioService:
         symbols: Iterable[str],
         *,
         wait_deadline: Optional[float] = None,
+        force_refresh: bool = False,
     ) -> Dict[str, Tuple[Optional[float], Optional[str]]]:
         """Return cached realtime quotes and refresh them in the background.
 
@@ -1224,6 +1241,10 @@ class PortfolioService:
         over a minute. Quotes that are already cached are returned immediately;
         a cold cache only waits for the shared, bounded budget handed down by
         the caller (``wait_deadline`` is a ``time.monotonic()`` instant).
+
+        ``force_refresh`` re-fetches symbols whose cache entry is still within
+        its TTL; that is what an explicit user refresh must do, otherwise
+        clicking refresh inside the TTL window re-reads the same prices.
         """
         unique_symbols = sorted({symbol for symbol in symbols if symbol})
         if not unique_symbols:
@@ -1234,12 +1255,13 @@ class PortfolioService:
             return {}
 
         cache = get_quote_cache()
-        cache.ensure_refresh(quotable, self._fetch_realtime_position_price)
+        cache.ensure_refresh(quotable, self._fetch_realtime_position_price, force=force_refresh)
 
         if wait_deadline is not None:
             remaining = wait_deadline - time.monotonic()
             if remaining > 0:
-                cache.wait_for(quotable, timeout=min(remaining, cache.wait_seconds))
+                budget = remaining if force_refresh else min(remaining, cache.wait_seconds)
+                cache.wait_for(quotable, timeout=budget)
 
         return cache.prices(quotable)
 

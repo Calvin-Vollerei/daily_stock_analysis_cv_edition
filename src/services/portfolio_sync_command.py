@@ -11,6 +11,12 @@ trigger inside the backend, driven entirely by configuration:
 * ``PORTFOLIO_SYNC_TIMEOUT_SECONDS`` - hard timeout (default 15min),
 * ``PORTFOLIO_SYNC_START_DELAY_SECONDS`` - delay after startup (default 3s).
 
+When ``PORTFOLIO_SYNC_COMMAND`` is empty, the Tonghuashun investment ledger
+(TZZB) settings from the Web Settings data_source page can drive the same hook
+instead (see :mod:`src.services.tzzb_sync`): an optional bridge command plus an
+optional read-only account probe. An explicit ``PORTFOLIO_SYNC_COMMAND`` always
+wins, because that wrapper usually contains the ledger bridge already.
+
 The command runs in a daemon thread, its output is logged, and failures never
 block the API. A marker file next to the database records the last run so that
 opening the app repeatedly does not start the (slow) bank scraping every time.
@@ -24,7 +30,13 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Dict, Optional
+
+from src.services.tzzb_sync import (
+    build_child_env as build_tzzb_child_env,
+    load_settings as load_tzzb_settings,
+    run_preflight as run_tzzb_preflight,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,16 +121,20 @@ def _child_env() -> dict:
     return env
 
 
-def _run_command(command: str, timeout_seconds: float) -> None:
+def _run_command(command: str, timeout_seconds: float, env_extra: Optional[dict] = None) -> None:
     started = time.time()
     logger.info("[portfolio sync] command started: %s", command)
+    child_env = _child_env()
+    for key, value in (env_extra or {}).items():
+        if value:
+            child_env[key] = value
     try:
         completed = subprocess.run(  # noqa: S602 - operator-configured command
             command,
             shell=True,
             capture_output=True,
             timeout=timeout_seconds,
-            env=_child_env(),
+            env=child_env,
             creationflags=CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
     except subprocess.TimeoutExpired:
@@ -144,26 +160,76 @@ def _run_command(command: str, timeout_seconds: float) -> None:
         logger.info("[portfolio sync] output tail:\n%s", tail)
 
 
-def _run_later(command: str, delay_seconds: float, timeout_seconds: float) -> None:
+def _run_preflight(preflight: Optional[Callable[[], Any]]) -> None:
+    if preflight is None:
+        return
+    try:
+        preflight()
+    except Exception as exc:  # noqa: BLE001 - a read must never block the sync command
+        logger.warning("[portfolio sync] preflight failed: %s", exc)
+
+
+def _run_later(
+    command: str,
+    delay_seconds: float,
+    timeout_seconds: float,
+    env_extra: Optional[dict] = None,
+    preflight: Optional[Callable[[], Any]] = None,
+) -> None:
     try:
         if delay_seconds > 0:
             time.sleep(delay_seconds)
-        _run_command(command, timeout_seconds)
+        _run_preflight(preflight)
+        if command:
+            _run_command(command, timeout_seconds, env_extra)
     finally:
         _write_marker(time.time())
 
 
+def _resolve_plan() -> Optional[Dict[str, Any]]:
+    """Decide what to run on this start, if anything.
+
+    Precedence: an explicit ``PORTFOLIO_SYNC_COMMAND`` (the historical,
+    wrapper-style hook) wins; otherwise the TZZB ledger settings drive the hook.
+    Nothing configured means the hook stays fully disabled.
+    """
+    command = (os.getenv(COMMAND_ENV) or "").strip()
+    if command:
+        return {
+            "source": COMMAND_ENV,
+            "command": command,
+            "env_extra": {},
+            "preflight": None,
+            "interval_seconds": _env_float(INTERVAL_ENV, DEFAULT_INTERVAL_SECONDS),
+            "timeout_seconds": _env_float(TIMEOUT_ENV, DEFAULT_TIMEOUT_SECONDS),
+        }
+
+    ledger = load_tzzb_settings()
+    if not ledger.active:
+        logger.debug("[portfolio sync] disabled (no %s and ledger sync off)", COMMAND_ENV)
+        return None
+
+    logger.info("[portfolio sync] ledger (TZZB) sync active: %s", ledger.describe())
+    return {
+        "source": "TZZB",
+        "command": ledger.command,
+        "env_extra": build_tzzb_child_env(ledger),
+        "preflight": (lambda: run_tzzb_preflight(ledger)) if ledger.has_mcp else None,
+        "interval_seconds": ledger.min_interval_seconds,
+        "timeout_seconds": ledger.timeout_seconds,
+    }
+
+
 def schedule_portfolio_sync() -> bool:
-    """Start the optional sync command once per interval. Returns True if started."""
+    """Start the optional sync job once per interval. Returns True if started."""
     global _scheduled, _worker
 
-    command = (os.getenv(COMMAND_ENV) or "").strip()
-    if not command:
-        logger.debug("[portfolio sync] disabled (no %s)", COMMAND_ENV)
+    plan = _resolve_plan()
+    if plan is None:
         return False
 
-    interval = _env_float(INTERVAL_ENV, DEFAULT_INTERVAL_SECONDS)
-    timeout_seconds = _env_float(TIMEOUT_ENV, DEFAULT_TIMEOUT_SECONDS)
+    interval = plan["interval_seconds"]
+    timeout_seconds = plan["timeout_seconds"]
     delay_seconds = _env_float(DELAY_ENV, DEFAULT_START_DELAY_SECONDS)
 
     with _schedule_lock:
@@ -188,7 +254,13 @@ def schedule_portfolio_sync() -> bool:
         _scheduled = True
         worker = threading.Thread(
             target=_run_later,
-            args=(command, delay_seconds, timeout_seconds),
+            args=(
+                plan["command"],
+                delay_seconds,
+                timeout_seconds,
+                plan["env_extra"],
+                plan["preflight"],
+            ),
             name="portfolio-sync-command",
             daemon=True,
         )
@@ -196,9 +268,11 @@ def schedule_portfolio_sync() -> bool:
 
     worker.start()
     logger.info(
-        "[portfolio sync] scheduled in %.1fs (timeout=%.0fs): %s",
+        "[portfolio sync] scheduled in %.1fs (timeout=%.0fs, source=%s): %s",
         delay_seconds,
         timeout_seconds,
-        command,
+        plan["source"],
+        plan["command"] or "<read-only ledger probe>",
     )
     return True
+

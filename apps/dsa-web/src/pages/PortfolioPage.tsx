@@ -886,7 +886,7 @@ const PortfolioPage: React.FC = () => {
     }
   }, [selectedBroker]);
 
-  const loadSnapshotAndRisk = useCallback(async () => {
+  const loadSnapshotAndRisk = useCallback(async (options: { forceRefresh?: boolean } = {}) => {
     setIsLoading(true);
     setRiskWarning(null);
     try {
@@ -894,6 +894,8 @@ const PortfolioPage: React.FC = () => {
         accountId: queryAccountId,
         costMethod,
         includeRealtime: true,
+        // 「刷新」按钮必须真的重新取价：后端默认会复用 60s 内的行情缓存。
+        forceRefresh: options.forceRefresh,
       });
       setSnapshot(snapshotData);
       setError(null);
@@ -1518,7 +1520,12 @@ const PortfolioPage: React.FC = () => {
   };
 
   const handleRefresh = async () => {
-    await Promise.all([loadAccounts(), loadSnapshotAndRisk(), loadEvents(), loadBrokers()]);
+    await Promise.all([
+      loadAccounts(),
+      loadSnapshotAndRisk({ forceRefresh: true }),
+      loadEvents(),
+      loadBrokers(),
+    ]);
     setPortfolioSignalsRefreshKey((current) => current + 1);
   };
 

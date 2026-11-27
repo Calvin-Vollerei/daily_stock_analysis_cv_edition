@@ -30,6 +30,8 @@ type SnapshotQuery = {
   asOf?: string;
   costMethod?: PortfolioCostMethod;
   includeRealtime?: boolean;
+  /** 仅 /snapshot 支持：跳过行情缓存 TTL，强制重新取价（用户手动刷新时使用）。 */
+  forceRefresh?: boolean;
 };
 
 type FxRefreshQuery = {
@@ -59,7 +61,10 @@ type CorporateListQuery = EventQuery & {
   actionType?: 'cash_dividend' | 'split_adjustment';
 };
 
-function buildSnapshotParams(query: SnapshotQuery): Record<string, string | number> {
+function buildSnapshotParams(
+  query: SnapshotQuery,
+  options: { allowForceRefresh?: boolean } = {},
+): Record<string, string | number> {
   const params: Record<string, string | number> = {};
   if (query.accountId != null) {
     params.account_id = query.accountId;
@@ -72,6 +77,9 @@ function buildSnapshotParams(query: SnapshotQuery): Record<string, string | numb
   }
   if (query.includeRealtime !== undefined) {
     params.include_realtime = query.includeRealtime ? 'true' : 'false';
+  }
+  if (options.allowForceRefresh && query.forceRefresh) {
+    params.force_refresh = 'true';
   }
   return params;
 }
@@ -133,7 +141,7 @@ export const portfolioApi = {
 
   async getSnapshot(query: SnapshotQuery = {}): Promise<PortfolioSnapshotResponse> {
     const response = await apiClient.get<Record<string, unknown>>('/api/v1/portfolio/snapshot', {
-      params: buildSnapshotParams(query),
+      params: buildSnapshotParams(query, { allowForceRefresh: true }),
     });
     return toCamelCase<PortfolioSnapshotResponse>(response.data);
   },

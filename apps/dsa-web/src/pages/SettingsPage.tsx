@@ -38,6 +38,7 @@ import type {
   SetupStatusCheck,
   SetupStatusResponse,
   SystemConfigCategory,
+  SystemConfigCategorySchema,
   SystemConfigItem,
   SystemConfigUpdateItem,
 } from '../types/systemConfig';
@@ -256,6 +257,31 @@ const ESSENTIAL_SETTING_KEYS = new Set([
   'SCHEDULE_TIME',
   'AGENT_MODE',
 ]);
+
+// 合成分类（synthetic categories）：侧栏里由前端补进、后端没有对应配置字段的分类，
+// 内容全部由页面自有的卡片渲染（通用设置 / 关于）。它们既不能渲染配置列表，
+// 也不能回落到「当前分类下暂无配置项」空态，否则页面底部会多出一块空卡片。
+type SyntheticSettingsNavEntry = Pick<SystemConfigCategorySchema, 'category' | 'title' | 'displayOrder'>;
+
+const SYNTHETIC_LEADING_CATEGORIES: SyntheticSettingsNavEntry[] = [
+  { category: 'general', title: '通用设置', displayOrder: -1 },
+];
+const SYNTHETIC_TRAILING_CATEGORIES: SyntheticSettingsNavEntry[] = [
+  { category: 'about', title: '关于', displayOrder: 999 },
+];
+const SYNTHETIC_SETTINGS_CATEGORY_IDS = new Set<string>(
+  [...SYNTHETIC_LEADING_CATEGORIES, ...SYNTHETIC_TRAILING_CATEGORIES].map((entry) => entry.category),
+);
+
+// 判断必须走这个函数，不要在渲染分支里直接比较分类名字符串：
+// 新增合成分类只要登记进上面的常量即可，空态不会再被误渲染。
+function isSyntheticSettingsCategory(category: string) {
+  return SYNTHETIC_SETTINGS_CATEGORY_IDS.has(category);
+}
+
+function toNavCategorySchema(entry: SyntheticSettingsNavEntry): SystemConfigCategorySchema {
+  return { ...entry, fields: [] };
+}
 
 function getConfigItem(items: SystemConfigItem[], key: string) {
   return items.find((item) => item.key === key);
@@ -1315,8 +1341,8 @@ const SettingsPage: React.FC = () => {
   const activeCategoryTitle = getCategoryTitle(activeCategory as SystemConfigCategory, t('settings.activePanelTitle'), uiLanguage);
   const activeCategoryDescription = getCategoryDescription(activeCategory as SystemConfigCategory, '', uiLanguage);
   const selectedAgentBackend = (rawActiveItemMap.get('AGENT_BACKEND') || 'auto').trim().toLowerCase();
-  // 关于页是纯展示分类：既不渲染配置列表，也不渲染「暂无配置项」空态。
-  const activeConfigPanel = activeCategory === 'about' ? null : hasActiveConfigItems ? (
+  // 合成分类没有后端配置字段：既不渲染配置列表，也不渲染「暂无配置项」空态。
+  const activeConfigPanel = isSyntheticSettingsCategory(activeCategory) ? null : hasActiveConfigItems ? (
     <SettingsSectionCard
       title={activeCategoryTitle}
       description={activeCategoryDescription || t('settings.activePanelDescription')}
@@ -1512,9 +1538,9 @@ const SettingsPage: React.FC = () => {
           <aside className="lg:sticky lg:top-4 lg:self-start">
             <SettingsCategoryNav
               categories={[
-                { category: 'general', title: '通用设置', displayOrder: -1, fields: [] },
+                ...SYNTHETIC_LEADING_CATEGORIES.map(toNavCategorySchema),
                 ...categories,
-                { category: 'about', title: '关于', displayOrder: 999, fields: [] },
+                ...SYNTHETIC_TRAILING_CATEGORIES.map(toNavCategorySchema),
               ]}
               itemsByCategory={itemsByCategory}
               activeCategory={activeCategory}

@@ -313,6 +313,59 @@ class PortfolioApiTestCase(unittest.TestCase):
         self.assertEqual(position["price_source"], "history_close")
         self.assertAlmostEqual(position["last_price"], 118.0, places=6)
 
+    def test_snapshot_force_refresh_flag_reaches_quote_cache(self) -> None:
+        today = date.today()
+        create_resp = self.client.post(
+            "/api/v1/portfolio/accounts",
+            json={"name": "Forced", "broker": "Demo", "market": "cn", "base_currency": "CNY"},
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        account_id = create_resp.json()["id"]
+        trade_resp = self.client.post(
+            "/api/v1/portfolio/trades",
+            json={
+                "account_id": account_id,
+                "symbol": "600519",
+                "trade_date": today.isoformat(),
+                "side": "buy",
+                "quantity": 10,
+                "price": 100,
+                "fee": 0,
+                "tax": 0,
+                "market": "cn",
+                "currency": "CNY",
+            },
+        )
+        self.assertEqual(trade_resp.status_code, 200, trade_resp.text)
+        self._save_close("600519", today, 118.0)
+
+        calls: list[tuple] = []
+
+        class FakeQuoteCache:
+            wait_seconds = 1.5
+
+            def ensure_refresh(self, symbols, fetch, *, force=False, quotable_only=True):
+                calls.append((tuple(symbols), force))
+                return False
+
+            def wait_for(self, symbols, timeout=None):
+                return 0.0
+
+            def prices(self, symbols):
+                return {}
+
+        with patch("src.services.portfolio_service.get_quote_cache", return_value=FakeQuoteCache()):
+            plain_resp = self.client.get("/api/v1/portfolio/snapshot", params={"account_id": account_id})
+            forced_resp = self.client.get(
+                "/api/v1/portfolio/snapshot",
+                params={"account_id": account_id, "force_refresh": "true"},
+            )
+
+        self.assertEqual(plain_resp.status_code, 200, plain_resp.text)
+        self.assertEqual(forced_resp.status_code, 200, forced_resp.text)
+        self.assertEqual(calls, [(("600519",), False), (("600519",), True)])
+        self.assertEqual(forced_resp.json()["total_market_value"], 1180.0)
+
     def test_snapshot_exposes_partial_quality_fields_for_mixed_position_markets(self) -> None:
         create_resp = self.client.post(
             "/api/v1/portfolio/accounts",

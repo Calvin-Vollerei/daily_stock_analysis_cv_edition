@@ -436,6 +436,13 @@ def get_snapshot(
         True,
         description="Whether today's snapshot should try realtime quotes before historical close fallback",
     ),
+    force_refresh: bool = Query(
+        False,
+        description=(
+            "Force a new quote fetch even when the in-process quote cache is still fresh "
+            "(use for an explicit user refresh)"
+        ),
+    ),
 ) -> PortfolioSnapshotResponse:
     service = PortfolioService()
     try:
@@ -444,6 +451,7 @@ def get_snapshot(
             as_of=as_of,
             cost_method=cost_method,
             include_realtime=include_realtime,
+            force_refresh=force_refresh,
         )
         return PortfolioSnapshotResponse(**data)
     except ValueError as exc:

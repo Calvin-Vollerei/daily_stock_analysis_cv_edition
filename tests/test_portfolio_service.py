@@ -295,6 +295,53 @@ class PortfolioServiceTestCase(unittest.TestCase):
         self.assertTrue(pos["price_stale"])
         self.assertTrue(pos["price_available"])
 
+    def test_force_refresh_snapshot_bypasses_quote_cache_ttl(self) -> None:
+        """An explicit user refresh must re-fetch prices, not re-read the cache."""
+
+        today = date.today()
+        account = self.service.create_account(name="Main", broker="Demo", market="cn", base_currency="CNY")
+        aid = account["id"]
+        self.service.record_trade(
+            account_id=aid,
+            symbol="600519",
+            trade_date=today,
+            side="buy",
+            quantity=10,
+            price=100,
+            market="cn",
+            currency="CNY",
+        )
+        self._save_close("600519", today, 110.0)
+        calls: list[tuple] = []
+
+        class FakeQuoteCache:
+            wait_seconds = 1.5
+
+            def ensure_refresh(self, symbols, fetch, *, force=False, quotable_only=True):
+                calls.append((tuple(symbols), force))
+                return False
+
+            def wait_for(self, symbols, timeout=None):
+                return 0.0
+
+            def prices(self, symbols):
+                return {}
+
+        with patch("src.services.portfolio_service.get_quote_cache", return_value=FakeQuoteCache()):
+            plain = self.service.get_portfolio_snapshot(account_id=aid, as_of=today, cost_method="fifo")
+            forced = self.service.get_portfolio_snapshot(
+                account_id=aid,
+                as_of=today,
+                cost_method="fifo",
+                force_refresh=True,
+            )
+
+        self.assertEqual(calls, [(("600519",), False), (("600519",), True)])
+        for snapshot in (plain, forced):
+            pos = snapshot["accounts"][0]["positions"][0]
+            self.assertEqual(pos["price_source"], "history_close")
+            self.assertAlmostEqual(pos["last_price"], 110.0, places=6)
+
     def test_current_snapshot_does_not_serialize_non_bulk_realtime_prefetch(self) -> None:
         today = date.today()
         account = self.service.create_account(name="Main", broker="Demo", market="cn", base_currency="CNY")
