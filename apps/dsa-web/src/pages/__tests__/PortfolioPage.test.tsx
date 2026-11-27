@@ -832,7 +832,6 @@ describe('PortfolioPage FX refresh', () => {
     expect(concentrationCard).not.toBeNull();
     const concentrationScope = within(concentrationCard as HTMLElement);
     expect(concentrationScope.getByText('板块集中度告警: 不可用')).toBeInTheDocument();
-    expect(concentrationScope.getByText('Top1 权重: --')).toBeInTheDocument();
 
     const drawdownCard = screen.getByText('回撤监控').closest('div.rounded-2xl');
     expect(drawdownCard).not.toBeNull();
@@ -1060,7 +1059,6 @@ describe('PortfolioPage FX refresh', () => {
     const concentrationScope = within(concentrationCard as HTMLElement);
     expect(concentrationScope.getByText('暂无集中度数据')).toBeInTheDocument();
     expect(concentrationScope.getByText('板块集中度告警: 不可用')).toBeInTheDocument();
-    expect(concentrationScope.getByText('Top1 权重: --')).toBeInTheDocument();
     const priceFlag = screen.getByText('价格质量').closest('div.rounded-xl');
     expect(priceFlag).not.toBeNull();
     expect(within(priceFlag as HTMLElement).getByText('缺价: 1 · 有价: 1 · 未刷新: 0')).toBeInTheDocument();
@@ -1102,7 +1100,6 @@ describe('PortfolioPage FX refresh', () => {
     expect(flagScope.getByText('100.00%')).toBeInTheDocument();
     expect(flagScope.getByText('Top1: 600519')).toBeInTheDocument();
     expect(flagScope.getByText('需处理')).toBeInTheDocument();
-    expect(screen.getByText('Top1 权重: 100.00%')).toBeInTheDocument();
     expect(screen.queryByText('暂无集中度数据')).not.toBeInTheDocument();
   });
 
@@ -1204,7 +1201,6 @@ describe('PortfolioPage FX refresh', () => {
     expect(concentrationCard).not.toBeNull();
     const concentrationScope = within(concentrationCard as HTMLElement);
     expect(concentrationScope.getByText('板块集中度告警: 不可用')).toBeInTheDocument();
-    expect(concentrationScope.getByText('Top1 权重: --')).toBeInTheDocument();
     expect(concentrationScope.queryByText('600519')).not.toBeInTheDocument();
 
     const drawdownCard = screen.getByText('回撤监控').closest('div.rounded-2xl');
@@ -1264,7 +1260,6 @@ describe('PortfolioPage FX refresh', () => {
     expect(concentrationCard).not.toBeNull();
     const concentrationScope = within(concentrationCard as HTMLElement);
     expect(concentrationScope.getByText('板块集中度告警: 不可用')).toBeInTheDocument();
-    expect(concentrationScope.getByText('Top1 权重: 60.00%')).toBeInTheDocument();
     expect(screen.queryByText('UNCLASSIFIED')).not.toBeInTheDocument();
   });
 
@@ -1306,7 +1301,6 @@ describe('PortfolioPage FX refresh', () => {
     expect(concentrationCard).not.toBeNull();
     const concentrationScope = within(concentrationCard as HTMLElement);
     expect(concentrationScope.getByText('板块集中度告警: 不可用')).toBeInTheDocument();
-    expect(concentrationScope.getByText('Top1 权重: --')).toBeInTheDocument();
     expect(screen.queryByText('UNCLASSIFIED')).not.toBeInTheDocument();
   });
 

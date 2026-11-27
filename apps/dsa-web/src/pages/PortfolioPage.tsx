@@ -1120,13 +1120,6 @@ const PortfolioPage: React.FC = () => {
     () => getPortfolioRiskAvailability(risk, snapshot),
     [risk, snapshot],
   );
-  const topClassifiedSector = useMemo(() => getClassifiedSectorRows(risk)[0], [risk]);
-  const concentrationTopWeight = riskAvailability.sectorConcentration
-    ? topClassifiedSector?.weightPct
-    : riskAvailability.concentration
-      ? risk?.concentration?.topWeightPct
-      : null;
-
   const snapshotMatchesAccountScope = useMemo(() => {
     if (!snapshot) return false;
     const snapshotAccountIds = new Set((snapshot.accounts || []).map((account) => account.accountId));
@@ -1240,12 +1233,13 @@ const PortfolioPage: React.FC = () => {
   const sectorPieData = useMemo(() => {
     if (!riskAvailability.sectorConcentration) return [];
     return getClassifiedSectorRows(risk)
-      .slice(0, 6)
       .map((item) => ({
         name: item.sector,
         value: Number(item.weightPct || 0),
       }))
-      .filter((item) => item.value > 0);
+      .filter((item) => item.value > 0)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 6);
   }, [risk, riskAvailability.sectorConcentration]);
 
   const positionFallbackPieData = useMemo(() => {
@@ -1253,12 +1247,13 @@ const PortfolioPage: React.FC = () => {
       return [];
     }
     return getValidTopPositionRows(risk)
-      .slice(0, 6)
       .map((item) => ({
         name: item.symbol,
         value: Number(item.weightPct || 0),
       }))
-      .filter((item) => item.value > 0);
+      .filter((item) => item.value > 0)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 6);
   }, [risk, riskAvailability.concentration]);
 
   const concentrationPieData = sectorPieData.length > 0 ? sectorPieData : positionFallbackPieData;
@@ -2083,21 +2078,39 @@ const PortfolioPage: React.FC = () => {
           )}
         </Card>
 
-        <Card padding="md">
-          <h2 className="text-sm font-semibold text-foreground mb-3">
+        <Card padding="md" className="flex h-full flex-col">
+          <h2 className="text-sm font-semibold text-foreground mb-4">
             {concentrationMode === 'sector' ? text.sectorConcentration : text.positionConcentrationFallback}
           </h2>
           {concentrationPieData.length > 0 ? (
-            <div className="h-64">
+            <div className="h-[22rem] py-2">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={concentrationPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90}>
+                  <Pie data={concentrationPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={96}>
                     {concentrationPieData.map((entry, index) => (
                       <Cell key={`cell-${entry.name}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                     ))}
                   </Pie>
                   <Tooltip formatter={(value) => `${Number(value).toFixed(2)}%`} />
-                  <Legend />
+                  {/* 图例自己渲染：顺序与数字都由数据决定，不依赖 recharts 的重排 */}
+                  <Legend
+                    wrapperStyle={{ paddingTop: 20 }}
+                    content={() => (
+                      <ul className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 pt-5 text-xs text-secondary">
+                        {concentrationPieData.map((entry, index) => (
+                          <li key={`legend-${entry.name}`} className="flex items-center gap-1.5">
+                            <span
+                              aria-hidden
+                              className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
+                              style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}
+                            />
+                            <span className="text-secondary">{entry.name}</span>
+                            <span className="font-medium text-foreground">{entry.value.toFixed(2)}%</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -2108,10 +2121,9 @@ const PortfolioPage: React.FC = () => {
               className="border-none bg-transparent px-4 py-10 shadow-none"
             />
           )}
-          <div className="mt-3 text-xs text-secondary space-y-1">
+          <div className="mt-auto pt-6 text-xs text-secondary space-y-1.5">
             <div>{text.displayScope}: {concentrationMode === 'sector' ? text.sectorDimension : text.positionDimensionFallback}</div>
             <div>{text.sectorAlert}: {riskAvailability.sectorConcentration ? (risk?.sectorConcentration?.alert ? text.yes : text.no) : riskDashboardText.unavailable}</div>
-            <div>{text.topWeight}: {formatPct(concentrationTopWeight)}</div>
           </div>
         </Card>
       </section>
