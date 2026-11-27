@@ -42,6 +42,15 @@ class PortfolioAccountListResponse(BaseModel):
     accounts: List[PortfolioAccountItem] = Field(default_factory=list)
 
 
+class PortfolioAiGuideResponse(BaseModel):
+    """Location of the AI import handbook shipped next to the application."""
+
+    available: bool
+    path: Optional[str] = None
+    filename: str = "portfolio-ai-import.md"
+    message: Optional[str] = None
+
+
 class PortfolioTradeCreateRequest(BaseModel):
     account_id: int
     symbol: str = Field(..., min_length=1, max_length=16)

@@ -19,6 +19,7 @@ from api.v1.schemas.portfolio import (
     PortfolioAccountItem,
     PortfolioAccountListResponse,
     PortfolioAccountUpdateRequest,
+    PortfolioAiGuideResponse,
     PortfolioCashLedgerListResponse,
     PortfolioCashLedgerCreateRequest,
     PortfolioCorporateActionListResponse,
@@ -38,6 +39,7 @@ from api.v1.schemas.portfolio import (
 )
 from src.config import get_config
 from src.services.task_queue import get_task_queue
+from src.services.portfolio_ai_guide import GUIDE_FILENAME, resolve_ai_import_guide
 from src.services.portfolio_import_service import PortfolioImportService
 from src.services.portfolio_risk_service import PortfolioRiskService
 from src.services.portfolio_sector_layer import (
@@ -604,6 +606,32 @@ def list_csv_brokers() -> PortfolioImportBrokerListResponse:
         return PortfolioImportBrokerListResponse(brokers=importer.list_supported_brokers())
     except Exception as exc:
         raise _internal_error("List CSV brokers failed", exc)
+
+
+@router.get(
+    "/imports/ai-guide",
+    response_model=PortfolioAiGuideResponse,
+    summary="Locate the AI import handbook",
+)
+def get_ai_import_guide() -> PortfolioAiGuideResponse:
+    """Absolute path of the handbook an external assistant should read.
+
+    The desktop UI copies this path to the clipboard so the user can hand it to
+    any AI assistant. A missing file is reported as ``available: false`` rather
+    than an error, because the guide is optional at runtime.
+    """
+    try:
+        guide = resolve_ai_import_guide()
+    except Exception as exc:  # pragma: no cover - defensive, resolve never raises
+        logger.warning("Resolve AI import guide failed: %s", exc)
+        return PortfolioAiGuideResponse(available=False, filename=GUIDE_FILENAME)
+    if guide is None:
+        return PortfolioAiGuideResponse(
+            available=False,
+            filename=GUIDE_FILENAME,
+            message="AI import guide not found next to the application",
+        )
+    return PortfolioAiGuideResponse(available=True, path=str(guide), filename=guide.name)
 
 
 @router.post(

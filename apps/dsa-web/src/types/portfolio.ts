@@ -364,6 +364,13 @@ export interface PortfolioImportBrokerItem {
   displayName?: string;
 }
 
+export interface PortfolioAiGuideResponse {
+  available: boolean;
+  path?: string | null;
+  filename: string;
+  message?: string | null;
+}
+
 export interface PortfolioImportBrokerListResponse {
   brokers: PortfolioImportBrokerItem[];
 }

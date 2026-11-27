@@ -2,6 +2,7 @@ import apiClient from './index';
 import { toCamelCase } from './utils';
 import type { TaskAccepted } from '../types/analysis';
 import type {
+  PortfolioAiGuideResponse,
   PortfolioAccountItem,
   PortfolioAccountCreateRequest,
   PortfolioAccountListResponse,
@@ -282,6 +283,13 @@ export const portfolioApi = {
     });
     return toCamelCase<PortfolioImportParseResponse>(response.data);
   },
+
+  /** AI 导入手册的绝对路径，供「AI 导入」按钮复制给外部助手。 */
+  async getAiImportGuide(): Promise<PortfolioAiGuideResponse> {
+    const response = await apiClient.get<Record<string, unknown>>('/api/v1/portfolio/imports/ai-guide');
+    return toCamelCase<PortfolioAiGuideResponse>(response.data);
+  },
+
 
   async commitCsvImport(
     accountId: number,

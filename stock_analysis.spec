@@ -4,7 +4,7 @@ import os
 from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('static', 'static'), ('strategies', 'strategies'), ('src/assets/share_image', 'src/assets/share_image')]
+datas = [('static', 'static'), ('strategies', 'strategies'), ('src/assets/share_image', 'src/assets/share_image'), ('docs/portfolio-ai-import.md', 'docs')]
 binaries = []
 hiddenimports = ['multipart', 'multipart.multipart', 'json_repair', 'orjson', 'tiktoken', 'tiktoken_ext', 'tiktoken_ext.openai_public', 'api', 'api.app', 'api.deps', 'api.v1', 'api.v1.router', 'api.v1.endpoints', 'api.v1.endpoints.analysis', 'api.v1.endpoints.history', 'api.v1.endpoints.stocks', 'api.v1.endpoints.health', 'api.v1.endpoints.screening', 'src.services.screening', 'src.services.screening.pipeline', 'api.v1.schemas', 'api.v1.schemas.analysis', 'api.v1.schemas.history', 'api.v1.schemas.stocks', 'api.v1.schemas.common', 'api.middlewares', 'api.middlewares.error_handler', 'src.services', 'src.services.task_queue', 'src.services.analysis_service', 'src.services.history_service', 'src.services.screening_service', 'uvicorn.logging', 'uvicorn.loops', 'uvicorn.loops.auto', 'uvicorn.protocols', 'uvicorn.protocols.http', 'uvicorn.protocols.http.auto', 'uvicorn.protocols.websockets', 'uvicorn.protocols.websockets.auto', 'uvicorn.lifespan', 'uvicorn.lifespan.on']
 datas += collect_data_files('litellm')

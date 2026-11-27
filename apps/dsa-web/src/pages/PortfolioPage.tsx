@@ -11,6 +11,7 @@ import { LookThroughCard } from '../components/dashboard/LookThroughCard';
 import { PortfolioSignalSummary } from '../components/decision-signals/DecisionSignalDisplay';
 import { useUiLanguage } from '../contexts/UiLanguageContext';
 import { formatUiText } from '../i18n/uiText';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { PORTFOLIO_SUPPORT_TEXT, PORTFOLIO_TEXT } from '../locales/featureText';
 import { PortfolioSupportDrawer } from '../components/portfolio/PortfolioSupportDrawer';
 import type { FxRefreshFeedback } from '../utils/portfolioFormat';
@@ -62,6 +63,9 @@ const PIE_COLORS = ['#00d4ff', '#00ff88', '#ffaa00', '#ff7a45', '#7f8cff', '#ff4
 const UNCLASSIFIED_SECTOR = 'UNCLASSIFIED';
 const DEFAULT_PAGE_SIZE = 20;
 const PORTFOLIO_SIGNAL_LOOKUP_CONCURRENCY = 6;
+/** 「AI 导入」按钮所在卡片，用于把提示显示在点击的那张卡里。 */
+type AiGuideSource = 'trade' | 'cash' | 'corp' | 'broker';
+
 const FALLBACK_BROKERS: PortfolioImportBrokerItem[] = [
   { broker: 'huatai', aliases: [], displayName: '华泰' },
   { broker: 'citic', aliases: ['zhongxin'], displayName: '中信' },
@@ -767,6 +771,8 @@ const PortfolioPage: React.FC = () => {
   const [csvCommitting, setCsvCommitting] = useState(false);
   const [csvParseResult, setCsvParseResult] = useState<PortfolioImportParseResponse | null>(null);
   const [csvCommitResult, setCsvCommitResult] = useState<PortfolioImportCommitResponse | null>(null);
+  // 「AI 导入」按钮的反馈：复制成功 / 需手动复制 / 手册缺失
+  const [aiGuideNotice, setAiGuideNotice] = useState<{ variant: 'success' | 'warning'; message: string; source: AiGuideSource } | null>(null);
   const [brokerLoadWarning, setBrokerLoadWarning] = useState<string | null>(null);
 
   const [eventType, setEventType] = useState<EventType>('trade');
@@ -1331,6 +1337,47 @@ const PortfolioPage: React.FC = () => {
       setError(getParsedApiError(err));
     }
   };
+
+  /** 复制 AI 导入手册的绝对路径；提示显示在触发它的那张卡片里。 */
+  const handleCopyAiGuide = async (source: AiGuideSource) => {
+    try {
+      const guide = await portfolioApi.getAiImportGuide();
+      if (!guide.available || !guide.path) {
+        setAiGuideNotice({ variant: 'warning', message: text.aiGuideMissing, source });
+        return;
+      }
+      const copied = await copyTextToClipboard(guide.path);
+      setAiGuideNotice({
+        variant: copied ? 'success' : 'warning',
+        message: formatUiText(copied ? text.aiGuideCopied : text.aiGuideManual, { path: guide.path }),
+        source,
+      });
+    } catch {
+      setAiGuideNotice({ variant: 'warning', message: text.aiGuideFailed, source });
+    }
+  };
+
+  /** 各录入卡片共用的标题行 +「AI 导入」按钮。 */
+  const renderAiImportRow = (title: string, source: AiGuideSource) => (
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      <button
+        type="button"
+        className="btn-secondary shrink-0 !px-3 !py-1 !text-[11px]"
+        onClick={() => void handleCopyAiGuide(source)}
+      >
+        {text.aiImportButton}
+      </button>
+    </div>
+  );
+
+  const renderAiGuideNotice = (source: AiGuideSource) => (aiGuideNotice && aiGuideNotice.source === source ? (
+    <InlineAlert
+      variant={aiGuideNotice.variant === 'success' ? 'success' : 'warning'}
+      message={aiGuideNotice.message}
+      className="rounded-lg px-2 py-1 text-xs shadow-none"
+    />
+  ) : null);
 
   const handleParseCsv = async () => {
     if (!csvFile) return;
@@ -2148,7 +2195,8 @@ const PortfolioPage: React.FC = () => {
       </div>
       <section className="grid grid-cols-1 xl:grid-cols-3 gap-3">
         <Card padding="md">
-          <h3 className="text-sm font-semibold text-foreground mb-3">手工录入：交易</h3>
+          {renderAiImportRow('手工录入：交易', 'trade')}
+          {renderAiGuideNotice('trade')}
           <form className="space-y-2" onSubmit={handleTradeSubmit}>
             <input className={PORTFOLIO_INPUT_CLASS} placeholder={text.entrySymbolPlaceholder} value={tradeForm.symbol}
               onChange={(e) => setTradeForm((prev) => ({ ...prev, symbol: e.target.value }))} required />
@@ -2180,7 +2228,8 @@ const PortfolioPage: React.FC = () => {
         </Card>
 
         <Card padding="md">
-          <h3 className="text-sm font-semibold text-foreground mb-3">手工录入：资金流水</h3>
+          {renderAiImportRow('手工录入：资金流水', 'cash')}
+          {renderAiGuideNotice('cash')}
           <form className="space-y-2" onSubmit={handleCashSubmit}>
             <div className="grid grid-cols-2 gap-2">
               <input className={PORTFOLIO_INPUT_CLASS} type="date" value={cashForm.eventDate}
@@ -2200,7 +2249,8 @@ const PortfolioPage: React.FC = () => {
         </Card>
 
         <Card padding="md">
-          <h3 className="text-sm font-semibold text-foreground mb-3">手工录入：公司行为</h3>
+          {renderAiImportRow('手工录入：公司行为', 'corp')}
+          {renderAiGuideNotice('corp')}
           <form className="space-y-2" onSubmit={handleCorporateSubmit}>
             <input className={PORTFOLIO_INPUT_CLASS} placeholder={text.entrySymbolPlaceholder} value={corpForm.symbol}
               onChange={(e) => setCorpForm((prev) => ({ ...prev, symbol: e.target.value }))} required />
@@ -2230,8 +2280,9 @@ const PortfolioPage: React.FC = () => {
 
       <section className="grid grid-cols-1 xl:grid-cols-2 gap-3">
         <Card padding="md">
-          <h3 className="text-sm font-semibold text-foreground mb-3">券商 CSV 导入</h3>
+          {renderAiImportRow('券商流水导入', 'broker')}
           <div className="space-y-2">
+            {renderAiGuideNotice('broker')}
             {brokerLoadWarning ? (
               <InlineAlert
                 variant="warning"
@@ -2248,7 +2299,7 @@ const PortfolioPage: React.FC = () => {
                 )}
               </select>
               <label className={PORTFOLIO_FILE_PICKER_CLASS}>
-                选择 CSV
+                选择文件
                 <input type="file" accept=".csv" className="hidden"
                   onChange={(e) => setCsvFile(e.target.files && e.target.files[0] ? e.target.files[0] : null)} />
               </label>
@@ -2269,7 +2320,7 @@ const PortfolioPage: React.FC = () => {
             {csvParseResult ? (
               <InlineAlert
                 variant={getCsvParseVariant(csvParseResult)}
-                title="CSV 解析结果"
+                title="流水解析结果"
                 message={`有效 ${csvParseResult.recordCount} 条，跳过 ${csvParseResult.skippedCount} 条，错误 ${csvParseResult.errorCount} 条。`}
                 className="rounded-lg px-3 py-2 text-xs shadow-none"
               />
@@ -2277,7 +2328,7 @@ const PortfolioPage: React.FC = () => {
             {csvCommitResult ? (
               <InlineAlert
                 variant={getCsvCommitVariant(csvCommitResult, csvDryRun)}
-                title={csvDryRun ? 'CSV 预演结果' : 'CSV 提交结果'}
+                title={csvDryRun ? '流水预演结果' : '流水提交结果'}
                 message={`${csvDryRun ? '预演检查' : '实际写入'}：写入 ${csvCommitResult.insertedCount} 条，重复 ${csvCommitResult.duplicateCount} 条，失败 ${csvCommitResult.failedCount} 条。`}
                 className="rounded-lg px-3 py-2 text-xs shadow-none"
               />
