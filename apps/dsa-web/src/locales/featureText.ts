@@ -70,3 +70,83 @@ export const LOOKTHROUGH_TEXT = {
 export const PORTFOLIO_SIDE_LABELS: Record<UiLanguage, Record<PortfolioSide, string>> = { zh: { buy: '买入', sell: '卖出' }, en: { buy: 'Buy', sell: 'Sell' } };
 export const PORTFOLIO_CASH_DIRECTION_LABELS: Record<UiLanguage, Record<PortfolioCashDirection, string>> = { zh: { in: '流入', out: '流出' }, en: { in: 'Inflow', out: 'Outflow' } };
 export const PORTFOLIO_CORPORATE_ACTION_LABELS: Record<UiLanguage, Record<PortfolioCorporateActionType, string>> = { zh: { cash_dividend: '现金分红', split_adjustment: '拆并股调整' }, en: { cash_dividend: 'Cash dividend', split_adjustment: 'Split adjustment' } };
+
+/** 持仓录入的支持清单抽屉文案。 */
+export const PORTFOLIO_SUPPORT_TEXT = {
+  zh: {
+    title: '支持的产品与录入方式',
+    subtitle: '持仓由交易流水按成本口径自动撮合，无需单独导入持仓表。',
+    productsTitle: '可录入的品种',
+    columnKind: '品种',
+    columnSample: '代码示例',
+    columnSource: '行情来源',
+    priceRealtime: '实时行情',
+    priceDaily: '日线收盘 / 净值',
+    priceExternal: '外部同步（无实时行情）',
+    rows: [
+      { kind: 'A股 · ETF · 场内基金', sample: '600519 · 510300 · SH600519', source: 'realtime' },
+      { kind: '港股', sample: '00700 · HK00700', source: 'realtime' },
+      { kind: '美股', sample: 'AAPL · MSFT · BRK.B', source: 'realtime' },
+      { kind: '日股 / 韩股 / 台股', sample: '7203.T · 005930.KS · 2330.TW', source: 'realtime' },
+      { kind: '场外基金', sample: '019305 · 011062', source: 'daily' },
+      { kind: '黄金积存', sample: 'GOLD_ICBC', source: 'external' },
+      { kind: '银行理财', sample: 'WMP_HZ2401', source: 'external' },
+    ],
+    entryTitle: '可用的录入方式',
+    entries: [
+      { name: '手工录入：交易', detail: '标的、日期、买入/卖出、数量、成交价、手续费与税费；手续费和税费可留空，按 0 处理。' },
+      { name: '手工录入：资金流水', detail: '日期、流入/流出、金额、币种；决定页面上的「总现金」。' },
+      { name: '手工录入：公司行为', detail: '现金分红、拆并股调整；用于修正持仓数量与成本。' },
+      { name: '券商 CSV', detail: '内置华泰、中信、招商三家解析器；先解析预览（按成交编号去重），确认后提交，导入的仍是交易流水。' },
+    ],
+    brokersTitle: '已安装的券商解析器',
+    brokersLoading: '正在读取券商列表…',
+    marketTitle: '账户市场',
+    marketDetail: 'cn / hk / us / jp / kr / tw；账户决定基准币种与汇率折算口径。',
+    costTitle: '成本口径',
+    costDetail: 'FIFO（先进先出）或 均价；在页面顶部切换后，持仓数量、成本价与浮动盈亏会重新计算。',
+    helper: '支持 A股 / ETF / 港股 / 美股 / 日股 / 韩股 / 台股 / 场外基金 / GOLD_ / WMP_',
+    openButton: '支持的产品类型',
+  },
+  en: {
+    title: 'Supported products and entry methods',
+    subtitle: 'Positions are derived from trades by the selected cost method, so there is no position table to import.',
+    productsTitle: 'Accepted instruments',
+    columnKind: 'Instrument',
+    columnSample: 'Symbol examples',
+    columnSource: 'Price source',
+    priceRealtime: 'Realtime quotes',
+    priceDaily: 'Daily close / NAV',
+    priceExternal: 'External sync (no realtime quote)',
+    rows: [
+      { kind: 'A-shares, ETFs, exchange-traded funds', sample: '600519 · 510300 · SH600519', source: 'realtime' },
+      { kind: 'Hong Kong', sample: '00700 · HK00700', source: 'realtime' },
+      { kind: 'United States', sample: 'AAPL · MSFT · BRK.B', source: 'realtime' },
+      { kind: 'Japan / Korea / Taiwan', sample: '7203.T · 005930.KS · 2330.TW', source: 'realtime' },
+      { kind: 'Mutual funds', sample: '019305 · 011062', source: 'daily' },
+      { kind: 'Gold accumulation', sample: 'GOLD_ICBC', source: 'external' },
+      { kind: 'Bank wealth products', sample: 'WMP_HZ2401', source: 'external' },
+    ],
+    entryTitle: 'Available entry methods',
+    entries: [
+      { name: 'Manual trade', detail: 'Symbol, date, buy/sell, quantity, fill price, fees and taxes; fees and taxes may be left blank and count as 0.' },
+      { name: 'Manual cash flow', detail: 'Date, inflow/outflow, amount, currency; this drives the total cash figure.' },
+      { name: 'Manual corporate action', detail: 'Cash dividend and split adjustment; used to correct quantity and cost.' },
+      { name: 'Broker CSV', detail: 'Built-in parsers for Huatai, CITIC and CMB; parse for a preview first (deduplicated by trade id), then submit. What lands is still trade history.' },
+    ],
+    brokersTitle: 'Installed broker parsers',
+    brokersLoading: 'Reading broker list...',
+    marketTitle: 'Account market',
+    marketDetail: 'cn / hk / us / jp / kr / tw; the account decides the base currency and the FX conversion scope.',
+    costTitle: 'Cost method',
+    costDetail: 'FIFO or average cost; switching it at the top of the page recomputes quantity, cost price and unrealised P&L.',
+    helper: 'Accepts A-shares / ETFs / HK / US / JP / KR / TW / mutual funds / GOLD_ / WMP_',
+    openButton: 'Supported products',
+  },
+} as const;
+
+/** 输入框下方的一行支持提示（两种语言共用同一份文案来源）。 */
+export const PORTFOLIO_SUPPORT_HELPER = {
+  zh: PORTFOLIO_SUPPORT_TEXT.zh.helper,
+  en: PORTFOLIO_SUPPORT_TEXT.en.helper,
+} as const;

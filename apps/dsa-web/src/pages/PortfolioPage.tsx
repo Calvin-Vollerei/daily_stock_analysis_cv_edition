@@ -11,7 +11,8 @@ import { LookThroughCard } from '../components/dashboard/LookThroughCard';
 import { PortfolioSignalSummary } from '../components/decision-signals/DecisionSignalDisplay';
 import { useUiLanguage } from '../contexts/UiLanguageContext';
 import { formatUiText } from '../i18n/uiText';
-import { PORTFOLIO_TEXT } from '../locales/featureText';
+import { PORTFOLIO_SUPPORT_TEXT, PORTFOLIO_TEXT } from '../locales/featureText';
+import { PortfolioSupportDrawer } from '../components/portfolio/PortfolioSupportDrawer';
 import type { FxRefreshFeedback } from '../utils/portfolioFormat';
 import {
   assessPositionPrice,
@@ -715,6 +716,7 @@ async function loadPortfolioSignalLookup(lookup: PortfolioSignalLookup): Promise
 const PortfolioPage: React.FC = () => {
   const { language, t } = useUiLanguage();
   const text = PORTFOLIO_TEXT[language];
+  const support = PORTFOLIO_SUPPORT_TEXT[language];
   const riskDashboardText = PORTFOLIO_RISK_DASHBOARD_TEXT[language];
   const decisionActionLabels = useMemo(() => buildDecisionActionLabelMap(t), [t]);
 
@@ -771,6 +773,8 @@ const PortfolioPage: React.FC = () => {
   const [eventDateFrom, setEventDateFrom] = useState('');
   const [eventDateTo, setEventDateTo] = useState('');
   const [eventSymbol, setEventSymbol] = useState('');
+  // 支持清单抽屉：录入区右上角的「支持的产品类型」按钮打开。
+  const [supportOpen, setSupportOpen] = useState(false);
   const [eventSide, setEventSide] = useState<'' | PortfolioSide>('');
   const [eventDirection, setEventDirection] = useState<'' | PortfolioCashDirection>('');
   const [eventActionType, setEventActionType] = useState<'' | PortfolioCorporateActionType>('');
@@ -2131,13 +2135,24 @@ const PortfolioPage: React.FC = () => {
         </Card>
       </section>
 
-      <p className="text-xs leading-5 text-secondary">{text.entrySupportHint}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 flex-1 text-xs leading-5 text-secondary">{text.entrySupportHint}</p>
+        <button
+          type="button"
+          className="btn-secondary shrink-0 !px-3 !py-1 !text-[11px]"
+          onClick={() => setSupportOpen(true)}
+          aria-label={support.openButton}
+        >
+          {support.openButton} ›
+        </button>
+      </div>
       <section className="grid grid-cols-1 xl:grid-cols-3 gap-3">
         <Card padding="md">
           <h3 className="text-sm font-semibold text-foreground mb-3">手工录入：交易</h3>
           <form className="space-y-2" onSubmit={handleTradeSubmit}>
             <input className={PORTFOLIO_INPUT_CLASS} placeholder={text.entrySymbolPlaceholder} value={tradeForm.symbol}
               onChange={(e) => setTradeForm((prev) => ({ ...prev, symbol: e.target.value }))} required />
+            <p className="text-[11px] leading-4 text-secondary">{support.helper}</p>
             <div className="grid grid-cols-2 gap-2">
               <input className={PORTFOLIO_INPUT_CLASS} type="date" value={tradeForm.tradeDate}
                 onChange={(e) => setTradeForm((prev) => ({ ...prev, tradeDate: e.target.value }))} required />
@@ -2189,6 +2204,7 @@ const PortfolioPage: React.FC = () => {
           <form className="space-y-2" onSubmit={handleCorporateSubmit}>
             <input className={PORTFOLIO_INPUT_CLASS} placeholder={text.entrySymbolPlaceholder} value={corpForm.symbol}
               onChange={(e) => setCorpForm((prev) => ({ ...prev, symbol: e.target.value }))} required />
+            <p className="text-[11px] leading-4 text-secondary">{support.helper}</p>
             <div className="grid grid-cols-2 gap-2">
               <input className={PORTFOLIO_INPUT_CLASS} type="date" value={corpForm.effectiveDate}
                 onChange={(e) => setCorpForm((prev) => ({ ...prev, effectiveDate: e.target.value }))} required />
@@ -2437,6 +2453,12 @@ const PortfolioPage: React.FC = () => {
             setPendingAccountDelete(null);
           }
         }}
+      />
+      <PortfolioSupportDrawer
+        isOpen={supportOpen}
+        onClose={() => setSupportOpen(false)}
+        brokers={brokers.map((item) => ({ broker: item.broker, displayName: item.displayName }))}
+        brokersWarning={brokerLoadWarning}
       />
     </div>
   );
