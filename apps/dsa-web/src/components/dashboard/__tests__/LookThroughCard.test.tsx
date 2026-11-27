@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LookThroughCard } from '../LookThroughCard';
@@ -82,17 +82,38 @@ describe('LookThroughCard', () => {
     expect(screen.queryByText('未启用持仓穿透')).not.toBeInTheDocument();
   });
 
-  it('stays hidden after the user dismisses the unavailable card', async () => {
+  it('collapses to a restore row after the user dismisses the unavailable card', async () => {
     getLookthrough.mockRejectedValueOnce(new Error('network down'));
 
-    const { container } = renderCard(<LookThroughCard />);
+    renderCard(<LookThroughCard />);
 
     const dismiss = await screen.findByText('不再显示');
     fireEvent.click(dismiss);
 
-    await waitFor(() => {
-      expect(container.firstChild).toBeNull();
-    });
+    // 隐藏后保留一行可恢复的入口，避免误点后再也回不到卡片。
+    expect(await screen.findByText('持仓穿透卡片已隐藏')).toBeInTheDocument();
     expect(window.localStorage.getItem('dsa.portfolio.lookthroughHidden')).toBe('1');
+
+    getLookthrough.mockResolvedValueOnce({
+      stock_count: 2,
+      penetrated_weight_pct: 12.5,
+      total_market_value: 1000,
+      generated_at: '2026-11-27 10:00',
+      coverage: {
+        penetrated_pct: 12.5,
+        unpenetrated_pct: 87.5,
+        fixed_income_pct: 0,
+        non_equity_pct: 0,
+      },
+      stocks: [
+        { code: 'NVDA', name: '英伟达', weight_pct: 1.2, via: [] },
+        { code: 'AAPL', name: '苹果', weight_pct: 0.8, via: [] },
+      ],
+    });
+
+    fireEvent.click(screen.getByText('恢复显示'));
+
+    expect(await screen.findByText('持仓穿透（理论个股头寸）')).toBeInTheDocument();
+    expect(window.localStorage.getItem('dsa.portfolio.lookthroughHidden')).toBeNull();
   });
 });

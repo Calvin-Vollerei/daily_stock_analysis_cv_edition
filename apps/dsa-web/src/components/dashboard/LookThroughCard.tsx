@@ -168,6 +168,14 @@ function writeHiddenFlag(): void {
   }
 }
 
+function clearHiddenFlag(): void {
+  try {
+    window.localStorage.removeItem(HIDDEN_STORAGE_KEY);
+  } catch {
+    // 同上：清理失败也只影响下次进入时的默认值。
+  }
+}
+
 /**
  * 持仓穿透卡片：展示 ETF / 场外基金折算后的「理论个股头寸」。
  *
@@ -225,6 +233,12 @@ export const LookThroughCard: React.FC<Props> = ({ accountId = null }) => {
     writeHiddenFlag();
   }, []);
 
+  // 隐藏后保留一行可恢复的入口：否则一旦点错就再没有回到卡片的路。
+  const handleRestore = useCallback(() => {
+    clearHiddenFlag();
+    setHidden(false);
+  }, []);
+
   const chartRows = useMemo<ChartRow[]>(() => {
     if (!data) {
       return [];
@@ -268,7 +282,14 @@ export const LookThroughCard: React.FC<Props> = ({ accountId = null }) => {
   }, [data, text]);
 
   if (hidden) {
-    return null;
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-secondary">
+        <span>{text.hiddenNotice}</span>
+        <button type="button" className="btn-secondary text-xs" onClick={handleRestore}>
+          {text.restore}
+        </button>
+      </div>
+    );
   }
 
   return (
