@@ -145,9 +145,10 @@ grep -rniE "账户|passwd|secret|请填写" scripts/desktop-sidecars-example/ ||
    `apps/dsa-desktop/main.js` 的 `buildBackendEnvironment()`（约 885 行）里，当用户未设置该键、
    且 `resources/desktop-sidecars/` 下有脚本时补一个默认值（只影响进程环境，不改写用户 `.env`）。
    这属于 Electron 侧改动，不需要重打 PyInstaller。
-2. **持仓穿透没有消费端**：穿透数据（ETF/场外基金 → 理论个股头寸）可由本机脚本生成 JSON，
-   但后端没有 `/api/v1/portfolio/lookthrough` 路由，前端卡片在 404 时优雅降级。
-   补齐要改后端 Python，必须重打 PyInstaller。
+2. **持仓穿透的消费端已补齐**：后端已提供 `GET /api/v1/portfolio/lookthrough`，优先取中间层
+   （`PORTFOLIO_SECTOR_LAYER_URL`），中间层不可用时回退本地快照 `sector-layer/lookthrough.json`
+   （可用 `PORTFOLIO_LOOKTHROUGH_PATH` 覆盖），两者都缺才返回 404 让前端卡片降级。
+   详见 [portfolio-risk-exposure-dashboard.md](portfolio-risk-exposure-dashboard.md)。
 3. **行业口径依赖外部中间层**：`.env.example` 的 `PORTFOLIO_SECTOR_LAYER_URL` 指向一个本地
    sidecar（用基金季报重算行业集中度）。没有常驻进程时静默回退到后端自算口径。
    长期应收进后端 `src/services/`，同样需要重打后端。

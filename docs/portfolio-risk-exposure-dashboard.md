@@ -64,6 +64,29 @@ Web 持仓页新增“风险与暴露看板”，放在组合总览指标和持�
   不把它们混进「未分类」。季报只披露了部分股票行业时，剩余部分标为「未穿透」，不伪装成现金。
   `_sector_layer.position_scope` 只描述持仓范围（`all_positions` / `backend_top_n`），与行业数据完整度无关。
 
+## 持仓穿透卡片的数据来源
+
+`GET /api/v1/portfolio/lookthrough` 为持仓页的「持仓穿透」卡片提供数据：把 ETF / 场外基金的
+基金持仓折算成“理论个股头寸”（`stocks[].weight_pct` 与 `stocks[].via[]` 说明经由哪些基金持有）。
+数据来源依次为：
+
+1. **行业中间层（优先）**：配置 `PORTFOLIO_SECTOR_LAYER_URL` 后，后端请求
+   `{PORTFOLIO_SECTOR_LAYER_URL}/api/v1/portfolio/lookthrough`，超时用
+   `PORTFOLIO_SECTOR_LAYER_TIMEOUT_S`（默认 12 秒），仅透传 `Accept` 头，不转发任何 Cookie/Authorization。
+2. **本地快照（回退）**：中间层未配置、不可用、超时、非 200 或返回结构不合法时，读取
+   `PORTFOLIO_LOOKTHROUGH_PATH`（默认 `sector-layer/lookthrough.json`，相对应用工作目录；
+   装机版随包发布该快照）。路径留空时依次尝试工作目录、可执行文件同级目录及其上级目录
+   （装机版为 `resources/backend/stock_analysis` 与安装根目录），最后是仓库根目录。
+3. **都没有**：返回 404，Web 卡片保持现有降级（显示「未启用持仓穿透」空态）。
+
+行为约束：整条链路**永不返回 500**——任何异常都记日志后继续回退；返回体保持中间层/快照的
+snake_case 原样透传（Web 端 `toCamelCase` 负责转换），不做字段裁剪。结构校验至少要求
+`stock_count`（int）、`penetrated_weight_pct` / `total_market_value`（有限 number）、
+`coverage`（dict）、`stocks`（list）；越界的数字（NaN/Infinity）视为不可序列化并降级为 404。
+
+快照由仓库外的 `lookthrough-build.py`（需后端在跑）生成，属于外部数据产物；
+不做定时刷新，过期数据由 `generated_at` 字段自行披露。
+
 ## 后续扩展
 
 - 按账户、行业、货币和市场增加可切换暴露视图。

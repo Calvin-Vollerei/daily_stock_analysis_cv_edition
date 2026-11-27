@@ -1415,6 +1415,9 @@ class Config:
     # 季报行业口径，失败/超时立即回退本地计算，页面不受影响。
     portfolio_sector_layer_url: str = ''
     portfolio_sector_layer_timeout_s: float = 12.0
+    # 持仓穿透快照（可选）：中间层不可用时回退读取的本地 JSON。留空表示用默认
+    # 相对路径 sector-layer/lookthrough.json（装机布局即随包发布的快照）。
+    portfolio_lookthrough_path: str = 'sector-layer/lookthrough.json'
     # 单次风险查询内允许花在联网行业板块查询上的墙钟预算（秒），0 表示只用缓存。
     portfolio_risk_sector_budget_s: float = 4.0
     portfolio_fx_update_enabled: bool = True
@@ -2530,6 +2533,9 @@ class Config:
                 field_name='PORTFOLIO_SECTOR_LAYER_TIMEOUT_S',
                 minimum=1.0,
             ),
+            portfolio_lookthrough_path=(
+                os.getenv('PORTFOLIO_LOOKTHROUGH_PATH') or ''
+            ).strip() or 'sector-layer/lookthrough.json',
             portfolio_risk_sector_budget_s=parse_env_float(
                 os.getenv('PORTFOLIO_RISK_SECTOR_BUDGET_S'),
                 4.0,

@@ -3,12 +3,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from api.v1.errors import api_error
 from api.v1.schemas.analysis import DuplicateTaskErrorResponse, TaskAccepted
@@ -42,7 +43,9 @@ from src.services.portfolio_risk_service import PortfolioRiskService
 from src.services.portfolio_sector_layer import (
     BYPASS_LOCAL,
     BYPASS_PROXY,
+    fetch_sector_layer_lookthrough,
     fetch_sector_layer_risk,
+    load_local_lookthrough,
 )
 from src.services.portfolio_service import (
     PortfolioBusyError,
@@ -702,3 +705,42 @@ def get_risk_report(
         raise _bad_request(exc)
     except Exception as exc:
         raise _internal_error("Get risk report failed", exc)
+
+
+@router.get(
+    "/lookthrough",
+    responses={404: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
+    summary="Get portfolio look-through (ETF/fund underlying stocks)",
+)
+def get_lookthrough(
+    account_id: Optional[int] = Query(None, description="Optional account id"),
+) -> Response:
+    """持仓穿透快照：优先取行业中间层，其次回退本地快照文件。
+
+    数据由外部行业中间层（季报持仓换算出的“理论个股头寸”）生成，开源版默认不带该
+    中间层，也没有本地快照，此时返回 404，让 Web 卡片降级为“未启用持仓穿透”。
+    任何一层失败都只降级，绝不以 500 结束请求。
+    """
+    config = get_config()
+
+    payload = None
+    try:
+        payload = fetch_sector_layer_lookthrough(config, account_id=account_id)
+    except Exception as exc:
+        logger.warning(f"Look-through sidecar lookup failed, falling back to local snapshot: {exc}")
+
+    if payload is None:
+        try:
+            payload = load_local_lookthrough(config)
+        except Exception as exc:
+            logger.warning(f"Look-through local snapshot lookup failed: {exc}")
+
+    if payload is None:
+        raise api_error(404, "not_found", "Portfolio look-through data unavailable")
+
+    try:
+        content = json.dumps(payload, ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        logger.warning(f"Look-through payload is not serializable, answering 404: {exc}")
+        raise api_error(404, "not_found", "Portfolio look-through data unavailable")
+    return Response(content=content, media_type="application/json")

@@ -79,7 +79,9 @@ for (const state of ['complete', 'missing-price', 'snapshot-error', 'invalid-top
     if (state === 'snapshot-error') {
       await expect(dashboard.getByText('总市值: --')).toBeVisible();
       await expect(dashboard.getByText('持仓: --')).toBeVisible();
-      await expect(page.getByText('共 -- 项')).toBeVisible();
+      // The positions card reports "已筛选 {filtered} / 共 {total} 条"; an
+      // unavailable snapshot is unknown, so both counters render as "--".
+      await expect(page.getByText('已筛选 -- / 共 -- 条')).toBeVisible();
       await expect(page.getByText('账户数: --')).toBeVisible();
       await expect(page.getByText('最新', { exact: true })).toHaveCount(0);
       await expect(page.getByText('持仓快照不可用', { exact: true })).toBeVisible();

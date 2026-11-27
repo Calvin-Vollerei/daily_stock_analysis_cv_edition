@@ -115,10 +115,8 @@ test('short desktop rail keeps settings and controls reachable', async ({ page }
   const settings = rail.getByRole('link', { name: '设置', exact: true });
   await expect(settings).toBeInViewport();
   await expect(rail.getByRole('button', { name: '退出', exact: true })).toBeInViewport();
-  await rail.getByRole('button', { name: '切换主题', exact: true }).click();
-  const themeMenu = rail.getByRole('menu', { name: '主题模式' });
-  await expect(themeMenu).toBeInViewport();
-  await themeMenu.getByRole('menuitemradio', { name: '深色', exact: true }).click();
+  // Theme and language moved out of the rail into Settings → General
+  // (GeneralSettingsCard); the rail only has to keep their entry point reachable.
   await rail.getByRole('button', { name: '退出', exact: true }).click();
   await expect(page.getByRole('heading', { name: '退出登录', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '取消', exact: true }).click();

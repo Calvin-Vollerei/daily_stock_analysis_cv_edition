@@ -361,7 +361,6 @@ def get_quote_cache() -> PortfolioQuoteCache:
 
 def reset_quote_cache() -> None:
     """Reset the process-wide cache (test isolation)."""
-    global _QUOTE_CACHE
     with _QUOTE_CACHE_LOCK:
         if _QUOTE_CACHE is not None:
             _QUOTE_CACHE.reset()

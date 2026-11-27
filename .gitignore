@@ -102,3 +102,6 @@ scripts/desktop-sidecars/
 # Electron 打包 / 取证临时产物
 /apps/dsa-desktop/dist-*/
 builder-debug.yml
+
+# pytest 临时工作目录（每次运行都会重建）
+pytest-of-*/

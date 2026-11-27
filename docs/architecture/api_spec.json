@@ -2636,6 +2636,18 @@
               "title": "Include Realtime"
             },
             "description": "Whether today's risk snapshot should try realtime quotes before historical close fallback"
+          },
+          {
+            "name": "sector_layer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Industry source: 'proxy' prefers the configured sector layer and falls back to the built-in computation; 'local' always uses the built-in computation",
+              "default": "proxy",
+              "title": "Sector Layer"
+            },
+            "description": "Industry source: 'proxy' prefers the configured sector layer and falls back to the built-in computation; 'local' always uses the built-in computation"
           }
         ],
         "responses": {
